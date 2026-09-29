@@ -96,6 +96,8 @@ Score Top-5:  1:1 13.9% (main) │ 0:0 8.6% (secondary) │ 2:1 8.3% │ 1:2 8.1
 9. **💹 Cross-bookmaker divergence, not water-level folklore** — a 227k-match test killed the "balanced book" myth: totals *vig* carries **no** directional information (47.9 / 52.6 / 49.9% — non-monotonic). What *does* work is **inter-bookmaker convergence**: when the favourite's implied-price spread across books is **<2%**, direction hits **62.6%** (vs **45.0%** when spread >10%), rising to **81.5%** for deep favourites (<1.50). Tracking sharp money = watching books *agree*, not watching the water level drift. Plainly: **only convergence may adjust confidence, and never by more than one tier.**
 10. **🌍 A dedicated sub-model for international football** — national teams are *not* clubs. Across **658 Nations League fixtures (4 editions)**: home advantage is flatter (60.7 vs ~65 for clubs), a systematic **away-favourite draw leak** exists (Elo −200…−50 ⇒ away wins only **35%**, draw **31%**, i.e. *not won 65%* — never a banker), and goals split asymmetrically with *who* is favoured (home-favoured O2.5 **72%** vs away-favoured **37%**). Club-league tables are therefore explicitly flagged **out of domain · reference only** here.
 11. **🔀 Two-channel dynamic verdict** — the **public channel** (Chinese lottery, ~12.8% vig) and the **institutional channel** (Asian/European books, ~6.9% vig) are tracked *separately* and then crossed into a four-quadrant read: **Q1 consensus** (public shortens **and** books follow ⇒ confidence +0.5 tier) · **Q2 trap alert** (public shortens, books *don't* follow ⇒ favourite −1 tier **+ forced co-primary**) · **Q3 upset precursor** (only books move ⇒ flag only) · **Q4 blocking signal** (public drifts while books side with the outcome ⇒ +0.5 tier). A 4-match sample shows lottery price cuts hit direction only **25%** of the time — so this channel may adjust *confidence only*, and only within ±1 tier. Never reverses direction.
+12. **🏛️ One dataset, two strictly separated products** — the same institutional odds feed yields **two distinct artefacts**: **(a)** a **multi-book merged de-vig** (inverse-vig weighted) producing a single p̂(H/D/A) that feeds *direction, Kelly and λ*; and **(b)** a **cross-book dispersion** measure ((Max−Median)/Median) that may **only adjust confidence, within ±1 tier**. Source roles are fixed: the-odds-api (**21 books**) for breadth · api-football (13) for the merge pool · sharp anchors (Pinnacle/1xbet) kept heuristic and **OFF by default**.
+13. **🧪 The auditor is audited too** — every P0 fix ships with a **reproducible fixture** (a real input file) plus a regression run wired into the consistency gate; check routines must be *assertion-based*, so "the keyword exists" can never pass for "the feature works". A documented recipe for the host tool-chain's `read-evidence` lock (four verified workarounds) keeps the pipeline from dead-ending on tooling.
 
 ## Architecture
 
@@ -157,6 +159,7 @@ PreStep ──▶ ① Data acquisition (multi-source · tri-state tagged)
 | Rule hierarchy L1–L5 | 150+ rules cannot conflict unpredictably; lower layers may only adjust confidence, never reverse direction |
 | Live fusion engine (7 sources) | Market .30 / HT .24 / CS .20 / halftime .10 / Poisson .07 / handicap .06 / totals .06 — weights **optimised on 20k matches**, not guessed |
 | Everything archived | Research must be reproducible; post-hoc analysis is the only honest feedback loop |
+| Verdict grounds = model output, not the shortest price | Direction is decided by expected-goals + net-margin + injury/ELO outputs; the lowest odds are **reference only** and may downgrade but never override a computed verdict |
 | Funding-flow signals adjust *confidence only* | Evidence-based: total-goals vig carries **no** direction info (47.9/52.6/49.9%, non-monotonic) — only inter-book *convergence* does, and never by more than ±1 tier |
 
 ## Backtest Evidence
@@ -229,10 +232,12 @@ PitchQuant/
 ├── scripts/
 │   ├── tmp/         core pipeline (calc_all · calc_poisson · live engine · gates
 │   │                · funding-flow signals · two-channel verdict · snapshots
-│   │                · NL sub-model + ELO-band aggregates · audit fixtures)
+│   │                · NL sub-model + ELO-band aggregates · audit fixtures
+│   │                · market consensus (merge de-vig) · quadrant tables)
 │   ├── online_learning/   post-match learning loop (5 layers)
 │   └── backtest/    backtest & data-building utilities
 ├── tables/          9 distilled JSON tables (league baselines, goal-bins, …)
+│   │                · 早盘快照 / 双通道判定 / 机构共识 / 四象限 / 审计 fixture
 ├── templates/       analysis output template + case template
 ├── docs/            architecture · methodology · getting-started · data-and-apis
 ├── examples/        anonymised real case (including a mis-prediction post-mortem)
@@ -338,6 +343,8 @@ $ python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1
 9. **💹 跨机构分歧，而非水位玄学** —— 22.7 万场检验否决了"庄家靠平衡两边吃水"的迷思：大小球抽水（vig）分档**不携带方向信息**（47.9 / 52.6 / 49.9%，非单调）。真正有效的是**机构间定价收敛**：热门侧隐含价差 **<2%** 时方向命中 **62.6%**（价差 >10% 时仅 **45.0%**），深盘热门（<1.50）更升至 **81.5%**。跟 sharp 资金 = **看机构是否一致**，而非看水位漂移。纪律：**只有"收敛"可以调置信度，且最多 ±1 档。**
 10. **🌍 国际赛事独立子模型** —— 国家队 ≠ 俱乐部。**658 场欧国联（四届）**实测显示：主场优势更平（60.7 vs 俱乐部约 65）、存在**客队热门平局泄漏**（Elo −200…−50 时客胜仅 **35%**、平 **31%**，即**赢不下 65%**—— 绝不可当稳胆）、进球按**谁热门**不对称分流（主热门 O2.5 **72%** vs 客热门 **37%**）。因此五大联赛通用档表在此被显式标注**超域 · 仅参考**。
 11. **🔀 双通道动态判定** —— **公众通道**（竞彩·抽水约 12.8%）与**机构通道**（欧亚盘·抽水约 6.9%）**分开追踪**，再交叉成四象限：**Q1 共识确认**（公众降赔 **且** 机构跟进 ⇒ 置信度 +0.5 档）· **Q2 诱盘警报**（公众降赔但机构**不跟进** ⇒ 热门 −1 档 + **强制并列**）· **Q3 冷门前兆**（仅机构动 ⇒ 只提示）· **Q4 阻盘信号**（公众升赔而机构看好 ⇒ +0.5 档）。4 场样本显示竞彩降赔的方向命中仅 **25%** —— 故本通道**只调置信度**、且最多 ±1 档，**永不反转方向**。
+12. **🏛️ 同一份数据、两个互不混用的产物** —— 同一批机构赔率产出**两个独立产物**：**(a)** **多机构合并去水**（按抽水倒数加权）→ 单一 p̂(主/平/客)，供 **方向 / 凯利 / λ**；**(b)** **跨机构离散度**（(Max−Median)/Median）→ **只调置信度、且最多 ±1 档**。数据源分工固定：the-odds-api（**21 家**）供广度 · api-football（13 家）供合并池 · sharp 锚（Pinnacle/1xbet）为启发式、**默认关闭**。
+13. **🧪 审计器本身也要被审计** —— 每修一个 P0 都**配套一份可复现 fixture**（真实输入文件）+ 回归跑进一致性门禁；检查项必须是**断言型**，绝不让"关键词存在"冒充"功能可用"。另附 host 工具链 `read-evidence` 锁的**四方案实测解**，确保流水线不会因工具问题卡死。
 
 ## 架构详解
 
@@ -396,6 +403,7 @@ PreStep ──▶ ① 数据获取（多源 · 三态标注）
 | **规则层级 L1–L5** | 150+ 条规则不会不可预测地冲突；低层级只能调置信度，**永不反转方向** |
 | **现场融合引擎（7 源）** | 市场 .30 / 半场 .24 / 比分盘 .20 / 半全场 .10 / 泊松 .07 / 亚盘 .06 / 大小球 .06 —— 权重在 **2 万场**上寻优得出，不是拍脑袋 |
 | **一切皆存档** | 研究必须可复现；赛后分析是唯一诚实的反馈回路 |
+| **判定铁依据 = 模型运行结果，而非最低赔率** | 方向由**期望进球 + 净胜档 + 伤停/ELO 等计算结果**决定；最低赔率**仅作参考**，只可降档、不得覆盖计算结论 |
 | **资金盘信号只调置信度** | 有据：大小球 vig **不携带方向信息**（47.9/52.6/49.9%，非单调）——只有机构间**收敛**有效，且最多 ±1 档 |
 
 ## 回测证据
@@ -487,6 +495,8 @@ PitchQuant/
 | 欧国联原始赛果（658 场） | ❌ 未包含 | 改为发布聚合结果 |
 | API keys | ❌ 绝不含 | 一律走环境变量 |
 | **竞彩赔率（输入数据）** | — | 取自 **中国体育彩票官方网站**（<https://www.lottery.gov.cn/jc/index.html>）**每日公开数据**（使用者自行抄录 · 本项目不内置）· 详见 [DISCLAIMER.md](DISCLAIMER.md) §4.5 |
+
+**时序数据**：早盘快照（`snapshot_save`）按需采集全市场，**只增不改**、按 eventId/队名精确匹配本场（禁跨场复用），多次采集即累积成欧亚盘时间序列，供 V1/V2/V6 与 CLV 消费。
 
 **回测数据来源**（均为公开数据 · 用于研究）：
 **Football-Data.co.uk**（赛果/统计/赔率）· **ClubElo**（ELO 评分）· 整合数据集 **xgabora/Club-Football-Match-Data**（Gábor, A.）· **中国体育彩票**官方公开赔率。
