@@ -5,7 +5,15 @@ description: 先验筛选模块（·含O10浅让降权/N4防平注）——用�
 
 # SK-prestep-filter 先验筛选（被动·用户指令触发）
 
-> 🔴**适用域边界**: 本模块阈值全部来自 **Matches.csv 22.7 万场（五大联赛）** → **欧国联/国家队（league_id=5）超出适用域** → **PreStep 先验不适用于 NL 场**·标「NL 超域·先验不触发」·NL 场直接走 `SK-league-nations`（R1-R10·658 场专属库）
+> 🔴**适用域边界（已修正）**: 阈值全部来自 **Matches.csv 22.7 万场（五大联赛）** → **欧国联/国家队（league_id=5）评分超域** → **NL 场不打 PreStep 分**·直接走 `SK-league-nations`（R1-R10·658 场）。🔴**赛程拉取已打通**: Odds-API **确实收录**欧国联（16 slug·`international-uefa-nations-league-league-{A-D}-gr-{1-4}`·实测 pending 156 场）→ `prestep_fetch.LG` 已纳入·**「未收录」为 2026-09-23 早期错误结论·已推翻**
+
+🔴**PreStep 实操口径（6 项）**:
+① **NL 场分流**——欧国联/国家队场分值**不混入正式双轨表**，移入『NL 超域区·仅供参考·不参与判定』（`prestep_dual.print_table` 已实现）
+② **slug 三态**——拉取失败（404/429）必须**列名 + 提示「可能漏场」**，429 自动重试 1 次（`prestep_fetch` 已实现）
+③ **主水必传**——`prestep_dual --match` 未传第 10 位主水 → **W1(主水诱主 −0.5) 失效·方向分偏高**（实测差 0.5 分）·脚本已加告警
+④ **分数留痕**——`prestep_window.json` 已增 `dir_score`/`score_score`/`tag` 三字段（可事后审计当批分数）
+⑤ **NL ELO**——NL 场 ELO 改读 `nl_data/elo_current.json`（313 队·clubelo 无国家队档案）
+⑥ **输出两层**——双轨分数表 + 人话推荐（中文队名）·缺任一层 = 输出不完整
 
 ## 🔴触发条件
 - 用户消息含「先验」（如「先验一下今晚的五大联赛」「筛选信号强的比赛」）→ **执行本 skill**
@@ -25,7 +33,7 @@ description: 先验筛选模块（·含O10浅让降权/N4防平注）——用�
 **执行方式（脚本化·避免手算）**:
 ```bash
 python data/tmp/prestep_dual.py --match "赛事,主,平,客,让球,O25[,水位差,联赛]"
-python data/tmp/prestep_dual.py --file data/tmp/_prestep_input.txt   # 每行一场
+python data/tmp/prestep_dual.py --file data/tmp/_prestep_input.txt   # 每行一场（🔴该文件为**运行时生成**的临时输入·非固定文件·不存在属正常）
 ```
 **输出（每场两套独立评级 + 综合判定）**:
 | 输出项 | 含义 |
@@ -115,3 +123,13 @@ python data/tmp/prestep_dual.py --file data/tmp/_prestep_input.txt   # 每行一
 - 被动模块: 无「先验」指令不触发·不干扰原模型 Step0-11
 - 信号强标准已回测校准（2026-09-20 V3 消融重标: 方向 ≥3.0=71.22% · 逐信号 Δ 边际差定分值 · D3 改负分/G2 移出/H3 改标注/O10 严格口径/H2 升2.0）
 - 每场只标记方向倾向+置信度·**不做完整分析**（完整分析等用户发 txt 走原模型）
+
+## 🔴 比分分新增信号（2026-09-27·回测 227,495 场·用户在 PreStep 比分分上新增判定）
+
+- **悬殊场 −1.0**：`|主隐含 − 客隐含| > 40pp` → 比分分 **−1.0**（tags: `悬殊场(|主隐-客隐|>40pp)-1.0`）
+  - 依据：按实力差分档，Top2 比分集中度 = 均势<5pp **23.9%** / 5-15pp **24.0%** / 15-25pp **24.2%** / 25-40pp 23.3% / **>40pp 20.7%（−3.2pp）** → 悬殊场比分明显更分散
+- 🔴 **「有强弱但不悬殊」不加分（数据否决）**：用户提议"不要均势、要有强弱但不悬殊" → 实测 5-25pp 档集中度 24.0-24.2%，与均势 23.9% **几乎相同（+0.1~0.3pp·远低于 3pp 门槛）** → **不采纳为该加分项**
+- 脚本：`data/tmp/prestep_dual.py::score_score`
+
+
+> 🔴 附注（2026-09-27 接口审计）: `data/tmp/prestep_efl.py` = 英锦赛(EFL Trophy)专用窗口抓取脚本（一次性/按需·未被流水线引用）。非五大联赛场次需要时手动调用；日常 PreStep 用 `prestep_fetch.py`。

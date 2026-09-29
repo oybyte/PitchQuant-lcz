@@ -7,7 +7,7 @@ description: 批量爬取联赛历史对战、近期6场战绩、攻防均值、
 
 调用 API-Football (v3.football.api-sports.io) 批量拉取比赛数据，自动规整为规范 CSV。
 
-**API Key**: `<YOUR_API_FOOTBALL_KEY>`（环境变量 x-apisports-key）
+**API Key**: `<YOUR_API_FOOTBALL_KEY>`（已内置，环境变量 x-apisports-key）
 
 ---
 

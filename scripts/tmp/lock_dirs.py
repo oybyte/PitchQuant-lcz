@@ -17,9 +17,9 @@
 import os, sys, json, argparse
 sys.stdout.reconfigure(encoding='utf-8')
 
-WS = 'C:/Users/12242/AppData/Roaming/reasonix/global-workspace'
-DSK = 'C:/Users/12242/Desktop/足球预测模型'
-TOP = 'C:/Users/12242/Desktop'
+WS = '<workspace>'
+DSK = '<model-copy>'
+TOP = '<home>/Desktop'
 
 # 🔴白名单: 模型实际会写入的目录（工作区 + 桌面副本 + 桌面）
 #    说明: 只列"会写"的目录·避免扫描 node_modules/任务缓存导致列表爆炸（曾达 16222 项）

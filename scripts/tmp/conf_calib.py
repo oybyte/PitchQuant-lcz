@@ -9,7 +9,7 @@ import csv, re, sys, os
 from collections import defaultdict
 sys.stdout.reconfigure(encoding='utf-8')
 
-BASE = 'C:/Users/12242/AppData/Roaming/reasonix/global-workspace/data'
+BASE = '<workspace>/data'
 RES2CN = {'H': '主胜', 'D': '平局', 'A': '客胜'}
 
 
