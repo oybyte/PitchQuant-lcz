@@ -26,7 +26,13 @@ try:
 except Exception:
     pass
 
-LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'clv_log.json')
+# 2026-09-15 修复(P4): 本文件 L16 自述「存储: data/tmp/clv_log.json」, 但原按 dirname(__file__)
+# 拼接 → 与自述位置不一致(日志分散两处·跨运行读不到)。现: 已有日志目录优先, 否则落到 data/tmp/。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from table_paths import find_root  # noqa: E402
+
+_LOG_DIR = os.path.join(find_root(), 'data', 'tmp')
+LOG = os.path.join(_LOG_DIR, 'clv_log.json')
 
 
 def _load():

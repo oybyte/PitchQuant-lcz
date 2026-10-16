@@ -22,9 +22,13 @@ DATA = 'data/Matches.csv'
 # ═══════════════════════════════════════════════════════════════
 def _load_cache():
     """读条件矩阵缓存(2026-09-07构建·ht_ft_cond.json·防每场22万重算)"""
-    import os, json
-    fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ht_ft_cond.json')
-    if os.path.exists(fp):
+    import os, json, sys
+    _h = os.path.dirname(os.path.abspath(__file__))
+    if _h not in sys.path:
+        sys.path.insert(0, _h)
+    from table_paths import find_table   # 🔴2026-09-15: 表在 data/tmp/(原指向 scripts/tmp/ → 恒静默失效)
+    fp = find_table('ht_ft_cond.json')
+    if fp:
         try:
             d = json.load(open(fp, encoding='utf-8'))
             cond = {}

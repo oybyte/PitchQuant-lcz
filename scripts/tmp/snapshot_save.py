@@ -20,6 +20,7 @@
 import argparse, datetime as dt, glob, json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fetch_retry import fetch_json
+from table_paths import find_table  # 2026-09-15 修复(P3): 统一路径解析(真源 data/tmp/)
 
 KEY = os.environ.get('ODDS_API_KEY', '')
 LG = {
@@ -123,8 +124,11 @@ def _nl_map():
     global _NL_CN2EN
     if _NL_CN2EN is None:
         try:
-            _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nl_team_cn_en.json')
-            _NL_CN2EN = json.load(open(_p, encoding='utf-8')).get('teams', {}) or {}
+            # 2026-09-15 修复(P3): 自述位置是 data/tmp/nl_team_cn_en.json(SKILL.md L69 同),
+            # 原按 dirname(__file__) 拼 → 表放文档位置时恒读失败 → cn2en(中文国家队) 恒返回原名
+            # → N21「无本场快照匹配」→ 快照实际未进入决策链(与 09-29 P0 修复意图相悖)。
+            _p = find_table('nl_team_cn_en.json')
+            _NL_CN2EN = json.load(open(_p, encoding='utf-8')).get('teams', {}) if _p else {}
         except Exception:
             _NL_CN2EN = {}
     return _NL_CN2EN

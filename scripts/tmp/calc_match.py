@@ -7,6 +7,10 @@ calc_match.py — V3.5.58 计算脚本（方案1+4：负载超载缓解·计算�
 """
 import re, sys, io, os, json
 
+# 2026-09-15 修复(P1): 数据表统一路径解析(真源 data/tmp/) —— 原按 dirname(__file__) 拼表名
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from table_paths import find_table  # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8') if hasattr(sys.stdout, 'buffer') else sys.stdout
 
 def parse_txt(text):
@@ -131,6 +135,15 @@ def main():
         return
     text = open(sys.argv[1], encoding='utf-8').read()
     secs = parse_txt(text)
+    # --eu 欧盘赔率(🔴2026-09-15 上移解析: 胜平负段的 skew 取值来源需先判定。
+    # 原在文末 L296 才解析 → skew 恒用竞彩 txt → 同一场竞彩 150% 高共识(可单押)、
+    # 欧盘 133% 弱共识(必须并列), 分档随来源翻转, 与模型实际消费的欧盘不一致)
+    eu_odds = None
+    if '--eu' in sys.argv:
+        try:
+            eu_odds = sys.argv[sys.argv.index('--eu') + 1]
+        except IndexError:
+            pass
     print("=" * 70)
     print("calc_match.py — V3.5.58 计算脚本（确定性计算·模型只判断）")
     print("=" * 70)
@@ -143,7 +156,12 @@ def main():
         print(f"  去抽水率: {vig*100:.2f}% → 隐含: 主{prob.get('胜',0)*100:.1f}%/平{prob.get('平',0)*100:.1f}%/客{prob.get('负',0)*100:.1f}%")
         # 评审固化·P0-1: 校准后概率（prob_calibration.json·热门低估偏差·禁仅等比例去水）
         try:
-            calib = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'prob_calibration.json'), encoding='utf-8'))
+            # 2026-09-15 修复(P1): 表真源在 data/tmp/(SKILL.md L18 自述「按 data/tmp/prob_calibration.json 校准」),
+            # 原按 dirname(__file__) 拼接 → 表在文档位置时恒读失败 → 被 except 静默吞成"提示"分支, 校准永不生效。
+            _cp = find_table('prob_calibration.json')
+            if not _cp:
+                raise FileNotFoundError('prob_calibration.json 未找到 — 应位于 data/tmp/')
+            calib = json.load(open(_cp, encoding='utf-8'))
             ph = prob.get('胜', 0)
             adj = 0
             for k, v in calib.items():
@@ -153,21 +171,41 @@ def main():
         except Exception:
             print(f"  🔴提示: 等比例去抽水未校准「赔率理解修正」(深盘热门隐含55-85%实际命中率+2.4~3.3pp·市场低估热门)·方向判定以联赛档位实际概率为主·隐含仅作资金流/背离参考")
         # 方向差距分级（最大两方向差距）+ 🔴skew精确计算
-        probs_sorted = sorted(prob.values(), reverse=True)
+        # 🔴2026-09-15 修复(Bug5): skew 取「实际消费的赔率来源」——传 --eu 时以欧盘为准, 否则竞彩 txt。
+        # 原实现恒用竞彩 → 同一场 竞彩 150%(判高共识·可单押) vs 欧盘 133%(弱共识·必须并列),
+        # 分档随来源翻转, 与 Step5 实际消费的欧盘不一致。
+        _sk_prob, _sk_src = prob, '竞彩txt'
+        if eu_odds:
+            try:
+                _eo = [float(x) for x in eu_odds.split(',')]
+                if len(_eo) == 3 and all(o > 1 for o in _eo):
+                    _iv = {'胜': 1 / _eo[0], '平': 1 / _eo[1], '负': 1 / _eo[2]}
+                    _tt = sum(_iv.values())
+                    _sk_prob, _sk_src = {k: v / _tt for k, v in _iv.items()}, '欧盘--eu'
+            except Exception:
+                _sk_prob, _sk_src = prob, '竞彩txt'
+        probs_sorted = sorted(_sk_prob.values(), reverse=True)
         if len(probs_sorted) >= 2:
             gap = (probs_sorted[0] - probs_sorted[1]) * 100
             level = '明确区(>15pt)' if gap > 15 else ('倾向区(10-15pt)' if gap >= 10 else ('微弱区(5-10pt)' if gap >= 5 else '均衡区(<5pt)'))
-            top2 = sorted(prob.items(), key=lambda x: -x[1])[:2]
+            top2 = sorted(_sk_prob.items(), key=lambda x: -x[1])[:2]
             print(f"  方向差距(前两方向): {gap:.1f}pt ({top2[0][0]}vs{top2[1][0]}) → {level}")
             # skew = 最高隐含/次高隐含(精确·禁手算): <100%无共识/100-150%温和/150-200%高/≥200%极端
+            # 🔴2026-09-15 修复(Bug4): 边界比较加 1e-6 容差 —— 2.97/1.98=1.5000000000000002 曾使
+            # 「skew<150」判假 → 弱共识并列铁律失效(该铁律是保护性的·禁单押)。
+            # 容差方向: 边界值(±1e-6 内)一律归【保护侧】—— <150 归弱共识, ≥200 归强共识。
             skew = probs_sorted[0] / probs_sorted[1] * 100
-            sklvl = '无共识(<100%)' if skew < 100 else ('温和共识(100-150%)' if skew < 150 else ('高共识(150-200%)' if skew < 200 else '极端(≥200%)'))
-            print(f"  🔴skew精确计算: {probs_sorted[0]*100:.1f}/{probs_sorted[1]*100:.1f} = {skew:.0f}% → {sklvl} (修正32判定依据·禁手算)")
+            _weak = skew <= 150 + 1e-6
+            _strong = skew >= 200 - 1e-6
+            sklvl = ('无共识(<100%)' if skew <= 100 + 1e-6 else
+                     '温和共识(100-150%)' if _weak else
+                     '高共识(150-200%)' if not _strong else '极端(≥200%)')
+            print(f"  🔴skew精确计算: {probs_sorted[0]*100:.1f}/{probs_sorted[1]*100:.1f} = {skew:.0f}% → {sklvl} (来源:{_sk_src}·修正32判定依据·禁手算)")
             # 弱共识场平局并列铁律（22.7万场回测: skew<150%→市场首选仅36.4-43.0%≈随机）
-            if skew < 150:
+            if _weak:
                 print(f"  🔴🔴弱共识场(skew={skew:.1f}%<150%) → 市场首选方向命中率仅 36.4-43.0%(≈随机) → "
                       f"**平局必须与市场首选并列（禁单押市场首选）**·置信度按原档降1档")
-            elif skew >= 200:
+            elif _strong:
                 print(f"  ✅强共识场(skew={skew:.1f}%≥200%) → 市场首选命中 64.6% → 可单押")
         # 凯利
         k = kelly(odds, prob)
@@ -294,13 +332,7 @@ def main():
                     print(f"    {k}: {first_odds[k]}→{odds[k]} ({chg:+.1f}% {'流入' if chg < 0 else '流出'})")
 
     # 扩展模块（防手算: D1背离/修正53预计算/V5跨市场·--eu 参数）
-    eu_odds = None
-    if '--eu' in sys.argv:
-        try:
-            i = sys.argv.index('--eu')
-            eu_odds = sys.argv[i+1]
-        except IndexError:
-            pass
+    # 🔴2026-09-15: --eu 解析已上移至 main() 开头(胜平负段 skew 来源需先知道 --eu)
     feat = parse_features(text)
     print(run_extensions(secs, feat, eu_odds))
 

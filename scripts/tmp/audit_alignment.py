@@ -18,6 +18,13 @@ import os
 import sys
 
 D = os.path.dirname(os.path.abspath(__file__))
+# 🔴2026-09-15 修复: 原 D 指向 scripts/tmp/, 但 score_depth/league/water/goal_bins/
+# deep_anchor/draw 六表实际在 data/tmp/ → report_tables() 六表全部"读取失败"。
+import sys as _sys
+if D not in _sys.path:
+    _sys.path.insert(0, D)
+from table_paths import find_table as _find_table  # noqa: E402
+D_TABLES = os.path.join(os.path.dirname(os.path.dirname(D)), 'data', 'tmp')
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except Exception:
@@ -73,7 +80,10 @@ def report_tables():
         if fn.endswith('.json'):
             try:
                 import json
-                d = json.load(io.open(os.path.join(D, fn), encoding='utf-8'))
+                _p = _find_table(fn)
+                if not _p:
+                    raise FileNotFoundError(fn)
+                d = json.load(io.open(_p, encoding='utf-8'))
                 rows = 'n=%d' % (len(d) if hasattr(d, '__len__') else 0)
             except Exception:
                 rows = '读取失败'

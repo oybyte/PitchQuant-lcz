@@ -20,9 +20,16 @@ except Exception:
     pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+from table_paths import find_root, find_table  # noqa: E402  <- 统一路径解析(唯一真源)
+
+ROOT = find_root()
 SRC = os.path.join(ROOT, 'data', 'Matches.csv')
-OUT = os.path.join(HERE, 'quadrant_table.json')
+# 2026-09-15 修复(P5): 原输出到 HERE(=scripts/tmp/) 而消费方(audit_alignment TABLES)与
+# table_paths 规范位置都是 data/tmp/ -> 生成后仍「读取失败」; 本文件 L9 自述用法亦为 data/tmp/。
+# 已有同名表时尊重其现有位置(避免双份), 否则写规范位置 data/tmp/。
+_OUT_EXIST = find_table('quadrant_table.json')
+OUT = _OUT_EXIST or os.path.join(ROOT, 'data', 'tmp', 'quadrant_table.json')
 
 
 def hband(hs):

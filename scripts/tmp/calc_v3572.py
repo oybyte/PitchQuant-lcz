@@ -14,9 +14,44 @@ except Exception:
 
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+if BASE not in sys.path:
+    sys.path.insert(0, BASE)
+from table_paths import find_table, load_table, find_root  # noqa: E402  ← 统一路径解析(唯一真源)
+
+
+# ── 水位标度唯一真源(2026-09-15 修复批次2) ──────────────────────
+# 🔴全仓只有一个水位标度 = 欧式 1.8-2.1(十进制赔率):
+#   skills/SK-model-v3-analysis/SKILL.md L383-387 水位意图量化表: 低水<1.85 / 中水1.85-2.05 / 高水>2.05
+#   佐证: 本文件 L413 direction_full 高水>2.05 · --water 帮助(L70)「1.8-2.1体系」· docs/data-and-apis.md L27 水位如1.85
+#   佐证: skills/SL-water-intent 信号E 亚盘水位 hdp=-0.5 上盘 1.9→2.025
+#   ⚠️澳门/香港盘水位(0.7-1.1)在数值上等价于欧式-1(HK 0.90 = 欧式 1.90), 但【本仓入口只有欧式】,
+#     故 0.7-1.1 一律视为【标度外】→ 不参与判定 + 显式标注(三态), 禁止当作欧式实值静默误用。
+#   ⚠️换算口径仅在本注释内说明, 不在代码里做隐式换算(避免双重标度污染)。
+WATER_SCALE_LO, WATER_SCALE_HI = 1.8, 2.1     # 有效标度(闭区间·含端点)
+WATER_LOW, WATER_HIGH = 1.85, 2.05            # 低水/高水阈值(严格不等号: <低水, >高水)
+
+
+def water_in_scale(water):
+    """水位是否属于本仓唯一标度(欧式 1.8-2.1)。标度外 → 调用方应三态标注不参与。"""
+    return water is not None and WATER_SCALE_LO <= water <= WATER_SCALE_HI
+
+
+def water_level_tag(water):
+    """标度内水位三态标签: 低水 / 正常 / 高水; 标度外 → None(不参与)。"""
+    if not water_in_scale(water):
+        return None
+    if water < WATER_LOW:
+        return "低"
+    if water > WATER_HIGH:
+        return "高"
+    return "正常"
+
+
 def load(n):
-    p = os.path.join(BASE, n)
-    return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
+    """表加载(经 table_paths 统一解析)。
+    🔴2026-09-15 修复: 原实现 os.path.join(BASE, n) 指向 scripts/tmp/, 而表在 data/tmp/,
+    加载失败静默返回 {} → LEAGUE/TEAM/WATER/ODDS 全空 → R1-R18 规则引擎整体空转。"""
+    return load_table(n, {})
 
 LEAGUE = load('league_table.json')
 TEAM = load('team_profiles.json')
@@ -196,7 +231,9 @@ def score_depth_lookup(margin, over25, league=None, odd_draw=None, win_odd=None,
     """输入净胜球(正=主胜负=客胜,0=平)+Over25赔率+联赛代码 → 主锚/次锚/第三+条件概率
     联赛微调(德甲H1大球升权/法甲小球维持/欧冠3:2升权等)仅在 anchor-second 差<5pp 时生效"""
     import os, json
-    path = table_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score_depth_table.json')
+    path = table_path or find_table('score_depth_table.json')
+    if not path:
+        raise FileNotFoundError('score_depth_table.json 未找到 — 应位于 %s' % os.path.join(find_root(), 'data', 'tmp'))
     tbl = json.load(open(path, encoding='utf-8'))
     def bucket(m):
         if m >= 4: return 'H4+'
@@ -328,7 +365,9 @@ _TEAM_AD = None
 def _load_team_ad():
     global _TEAM_AD
     if _TEAM_AD is None:
-        p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'team_attack_defense.json')
+        p = find_table('team_attack_defense.json')
+        if not p:
+            raise FileNotFoundError('team_attack_defense.json 未找到 — 应位于 data/tmp/')
         _TEAM_AD = _json.load(open(p, encoding='utf-8'))
     return _TEAM_AD
 def adjust_by_team_half(team_h, team_a, half_draw_prob, candidates):
@@ -362,12 +401,19 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
     inv = [1/oh, 1/od, 1/oa]
     s = sum(inv)
     ph, pd, pa = [x/s for x in inv]
+    # 2026-09-15 修复(P2): 同 P1 —— 真源 data/tmp/; 且原为【裸 except】→ 表缺失/格式错全部静默吞掉,
+    # 校准不生效却无任何提示(与「禁仅等比例去水」的纪律冲突)。现缺失/损坏一律写入执行提示(三态留痕)。
+    _calib_note = None
     try:
-        calib = _json.load(open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'prob_calibration.json'), encoding='utf-8'))
+        _cp = find_table('prob_calibration.json')
+        if not _cp:
+            raise FileNotFoundError('prob_calibration.json 未找到 — 应位于 data/tmp/')
+        calib = _json.load(open(_cp, encoding='utf-8'))
         for k, v in calib.items():
             lo, hi = float(k.split('-')[0]), float(k.split('-')[1])
             if lo <= ph < hi: ph += v['bias_pp']/100; break
-    except: pass
+    except Exception as _ce:
+        _calib_note = '🔴去水校准未生效(%s): 热门低估修正缺失→概率按等比例去水, 凯利/λ反推须标注' % str(_ce)[:60]
     # ② 修正53 平局加权（分组分≥2.5并列·≥4唯一）
     draw_adj = 0
     draw_signal = 'none'
@@ -438,6 +484,8 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
     parallel = 'yes' if (second_p - (main_p - 0.15)) > 0 and draw_signal in ('parallel','sole') else 'no'
     # 执行提示
     hints = []
+    if _calib_note:
+        hints.append(_calib_note)   # P2 修复: 校准缺失必须留痕(原裸 except 静默吞)
     if main_dir == '主胜' and (oh < 1.5 or (over25 and over25 < 1.7)):
         hints.append('H3+出口: 候选池需含3:0/4:0类(净胜双出口·2026-08-27固化·案例库H3+锚定仅6%执行不足)')
     if main_dir == '客胜' and 3.0 <= od <= 3.5:
@@ -495,7 +543,9 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
         elif -0.5 < handi < 0 and main_dir == '主胜':
             hints.append('D5浅盘(让%.2f): 实测赢盘45.5%%(防下盘)·平局风险升(净胜+0.4≈盘口)' % abs(handi))
     # D6平手/客浅高水(实测: 赢盘率43.3%%<45%%→诱上·主胜降权)
-    if handi is not None and -0.3 <= handi <= 0.3 and home_water and home_water > 1.0 and main_dir == '主胜':
+    # 2026-09-15 修复(W1): 原判据 home_water > 1.0 在欧式标度下【恒真】→ 任何真实水位都触发 D6;
+    # 须与同函数 L413「高水>2.05」及量化表一致(统一走 water_level_tag 唯一真源)
+    if handi is not None and -0.3 <= handi <= 0.3 and water_level_tag(home_water) == '高' and main_dir == '主胜':
         hints.append('D6平手/客浅高水(%.2f): 实测赢盘率43.3%%→诱上嫌疑·主胜降权考虑' % home_water)
         if conf == 'HIGH': conf = 'MID-HIGH'
     # P0-2置信度标签: LOW诱主修正=反向高命中·区分原始档
@@ -575,9 +625,13 @@ def goal_bin_probs(o25):
     global _GOAL_BINS
     if _GOAL_BINS is None:
         import os, json as _json
-        fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'goal_bins_table.json')
-        try: _GOAL_BINS = _json.load(open(fp, encoding='utf-8'))
-        except: _GOAL_BINS = {}
+        fp = find_table('goal_bins_table.json')
+        # 🔴2026-09-15 修复: 原为 os.path.join(dirname(__file__),...) + 裸 except → 表找不到时
+        # 静默置 {} → goal_bin_probs 恒返回 None → Step6/7 总进球档位全部"不触发"。
+        try:
+            _GOAL_BINS = _json.load(open(fp, encoding='utf-8')) if fp else {}
+        except Exception:
+            _GOAL_BINS = {}
     if not _GOAL_BINS or o25 is None: return None
     best = None
     for band, v in _GOAL_BINS.items():
@@ -617,20 +671,26 @@ def true_handicap_calculator(elo_diff=None, home_adv=0.0, inj_h=0, inj_a=0, form
 
 def match_classifier(oh, od, oa, handi=None, true_handi=None, water=None, kelly=None, multi_std=None):
     """比赛分类器(文档6.2·8项异常指标·每项1分):
-    可得指标: 盘口背离|盘口-真实实力盘|>0.25球 · 水位异常(热方>0.95或<0.75) · 欧亚背离(欧赔主胜隐含 vs 亚盘盘口隐含差>5%)
+    可得指标: 盘口背离|盘口-真实实力盘|>0.25球 · 水位异常(欧式1.8-2.1: 低水<1.85或高水>2.05) · 欧亚背离(欧赔主胜隐含 vs 亚盘盘口隐含差>5%)
             凯利异常(>1.0或<0.85) · 多源std>3%
     不可得(无初盘/临场变动): 盘口变动/水位变动 → 标"无数据"不算分
     返回: match_type(normal/ambiguous/bookmaker_driven) + total_score + 各指标得分"""
     import math
     scores = {}
     details = []
+    handi_implied_home = None
     # ① 欧亚背离: 欧赔主胜隐含 vs 亚盘盘口映射(盘口→主胜概率近似: 0.5球55%/0.75球60%/1球65%/1.5球75%)
     if handi is not None and oh:
         inv = 1/oh + 1/od + 1/oa
         ep = 1/(oh*inv)
         ah = {0.25: 0.48, 0.5: 0.56, 0.75: 0.61, 1.0: 0.66, 1.25: 0.70, 1.5: 0.75, 1.75: 0.80, 2.0: 0.85}.get(abs(handi), 0.55)
-        if handi < 0: ah = 1 - ah  # 主受让
+        # 2026-09-15 修复(Bug3): 符号口径必须与 CLI/文档一致 —— calc_v3572 --handi 帮助(L70)为「负=主让」,
+        # 全仓 magnitude 语义亦为 abs(handi)(让得越深盘口越深)。原 if handi < 0: ah = 1 - ah  把
+        # 【主让】当【主受让】→ 深浅方向整体反向(主让1球被判主胜隐含34%)。
+        # 正确: 负=主让 → 直接用表值; 正=主受让 → 主胜概率取补; 0=平手盘 → 对称中性。
+        if handi > 0: ah = 1 - ah  # 主受让
         dev = abs(ep - ah)
+        handi_implied_home = round(ah, 2)
         scores['euro_asia'] = 1 if dev > 0.05 else 0
         if dev > 0.05: details.append('欧亚背离%.0f%%(欧赔主%.0f%% vs 亚盘主%.0f%%)' % (dev*100, ep*100, ah*100))
     # ② 盘口背离(真实实力盘)
@@ -639,10 +699,20 @@ def match_classifier(oh, od, oa, handi=None, true_handi=None, water=None, kelly=
         scores['handi_dev'] = 1 if d > 0.25 else 0
         if d > 0.25: details.append('盘口背离%.2f球(实盘%.2f vs 真实%.2f)' % (d, handi, true_handi))
     # ③ 水位异常(单时点·降级: 无初盘对比)
+    # 2026-09-15 修复(Bug2): 全仓水位只有【一个标度】= 欧式 1.8-2.1
+    # (README L216/461 · docs/data-and-apis.md L27 · calc_v3572 L70 --water 帮助「1.8-2.1体系」·
+    #  self_iterate / 案例文档 均用 1.8-2.1; 仅此处与 europe_group_stage 残留澳门 0.7-1.1)。
+    # 原实现按澳门标度判(>0.95 高水 / <0.75 低水) → 1.8-2.1 的任何一个真实水位都 >0.95 →
+    # 每场白送 1 分异常分(实测 1.00/1.50/1.84/1.90/2.05/2.10 全部判「高水…诱盘信号」), 方向被系统性带偏。
+    # 现标度外显式不参与并标注根因, 标度内按 低水<1.85 / 高水>2.05 判定。
     if water is not None:
-        scores['water'] = 1 if (water > 0.95 or water < 0.75) else 0
-        if water > 0.95: details.append('高水%.2f(热门方>0.95·诱盘信号)' % water)
-        elif water < 0.75: details.append('低水%.2f(<0.75·阻盘/真实看好)' % water)
+        if not (1.8 <= water <= 2.1):
+            scores['water'] = 0
+            details.append('水位%.2f 非1.8-2.1标度·不参与(澳门标度需先换算)' % water)
+        else:
+            scores['water'] = 1 if (water < 1.85 or water > 2.05) else 0
+            if water < 1.85: details.append('低水%.2f(<1.85·阻盘/真实看好)' % water)
+            elif water > 2.05: details.append('高水%.2f(>2.05·诱盘信号)' % water)
     # ④ 凯利异常
     if kelly is not None:
         k = max(kelly.values()) if isinstance(kelly, dict) else kelly
@@ -658,9 +728,13 @@ def match_classifier(oh, od, oa, handi=None, true_handi=None, water=None, kelly=
         mt = 'ambiguous'; conf = total/3.0
     else:
         mt = 'normal'; conf = 0.0
-    return {'match_type': mt, 'confidence': round(conf, 2), 'total_score': total,
+    _ret = {'match_type': mt, 'confidence': round(conf, 2), 'total_score': total,
             'anomaly_scores': scores, 'anomaly_details': details,
             '无数据指标': ['盘口变动(需初盘+临场)', '水位变动(需初盘+临场)']}
+    if handi_implied_home is not None:
+        # 亚盘盘口隐含主胜概率(符号口径: 负=主让·Bug3 配套·供审计与回归)
+        _ret['handi_implied_home'] = handi_implied_home
+    return _ret
 
 def handicap_intent_analyzer(cf, direction, trap_signals, fundamental_dir=None, o25=None, draw_odd=None, totals_line=None):
     """庄家意图分析器(文档6.3·诱阻识别):
@@ -735,30 +809,61 @@ def euro_asia_consistency(oh, od, oa, handi):
     return {'背离': '一致(差%.0f%%≤5%)' % (abs(dev)*100), '欧赔主胜隐含': round(ep, 3), '亚盘主胜隐含': round(ah, 3), '一致': True}
 
 def water_level_anomaly(water_init, water_live, side='热门'):
-    """维度3·水位异常检测(文档4.3·初盘+临场): 临场>0.95高水诱盘·<0.75低水阻盘·变动>+0.1升水诱盘/<-0.1降水真实
-    无初盘→单时点降级(>0.95诱/<0.75阻·标降级)"""
+    """维度3·水位异常检测(文档4.3·初盘+临场)·🔴欧式标度 1.8-2.1(低水<1.85·高水>2.05·变动>0.10)
+    无初盘→单时点降级(低水阻/<中>高水诱·标降级)
+
+    🔴2026-09-15 修复(W2·与 Bug2 同根因): 原判据 0.95/0.75 是【澳门标度】(等价欧式 1.95/1.75),
+    本仓传入的一律是欧式 1.8-2.1 → 任何真实水位都 >0.95 → 恒判「高水诱盘信号」(信号恒亮=等于无信号);
+    且原实现两条分支都只看 water_live>0.95 → 【升水/降水不分】(初盘2.10→临场1.90 降水 0.20 也报「升水·诱盘」)。
+    现改: ①标度外→不参与并标注(三态) ②升/降按 chg 符号优先, 再叠加水位档位。
+    """
     if water_live is None: return None
+    if not water_in_scale(water_live) and not water_in_scale(water_init):
+        return {'标签': '水位%.2f 非1.8-2.1标度·不参与(澳门标度需先换算)' % water_live,
+                '临场水位': water_live}
     if water_init is None:
-        tag = '高水诱盘信号' if water_live > 0.95 else ('低水阻盘/真实看好' if water_live < 0.75 else '水位正常')
+        lv = water_level_tag(water_live)
+        tag = {'低': '低水阻盘/真实看好', '高': '高水诱盘信号'}.get(lv, '水位正常')
         return {'标签': tag + '(单时点·无初盘降级)', '临场水位': water_live}
     chg = water_live - water_init
-    if water_live > 0.95 or chg > 0.1: tag = '高水/升水·诱盘信号(庄家不怕热门打出)'
-    elif water_live < 0.75 or chg < -0.1: tag = '低水/降水·真实看好(庄家降赔付)'
+    lv = water_level_tag(water_live)
+    if chg > 0.10: tag = '升水%.2f·诱盘信号(庄家不怕热门打出)' % chg
+    elif chg < -0.10: tag = '降水%.2f·真实看好(庄家降赔付)' % abs(chg)
+    elif lv == '高': tag = '高水·诱盘信号(庄家不怕热门打出)'
+    elif lv == '低': tag = '低水·真实看好(庄家降赔付)'
     else: tag = '水位正常'
     return {'标签': tag, '初盘': water_init, '临场': water_live, '变动': round(chg, 2)}
 
 def handicap_movement_analyzer(h_init, h_live, w_init=None, w_live=None):
-    """维度4·盘口变动模式(文档4.4): 升盘>0.25·降盘>0.25·三段式(需初盘+临场)
-    升盘+上盘低水=阻上(真实看好)·升盘+高水=诱下·降盘+高水=诱上·降盘+低水=阻下
-    无初盘→None(降级)"""
+    """维度4·盘口变动模式(文档4.4): 升盘/降盘>0.25球·三段式(需初盘+临场)·🔴欧式水位 1.8-2.1
+    升盘+低水=阻上(真实看好)·升盘+高水=诱下·降盘+高水=诱上·降盘+低水=阻下 · 无初盘→None(降级)
+
+    🔴2026-09-15 修复(W3·与 Bug2/Bug3 同根因), 两处:
+    ①【符号】calc_v3572 L70 --handi 为「负=主让」→ 主让由 -0.5 变 -1.0 是【加深=升盘】,
+      原 chg = h_live - h_init = -0.5 < 0 落入 else → 误判「降盘」(升降完全反向)。
+      现按【让球深度】比较: 负=主让 → 越负越深; 正=客让 → 越正越深。
+    ②【标度】原水位判据 0.9 是澳门标度 → 欧式真实水位恒 >0.9 → 升盘/降盘一律只走「高水」分支。
+      现统一走 water_level_tag 唯一真源(低水<1.85 / 高水>2.05), 标度外→不参与。
+    """
     if h_init is None or h_live is None: return None
-    chg = h_live - h_init
+    depth0, depth1 = abs(h_init), abs(h_live)      # 让球深度(与符号无关)
+    chg = depth1 - depth0                          # >0 = 盘口加深
     if abs(chg) <= 0.25: return {'模式': '稳定盘(变动≤0.25·正常或意图不明显)', '变动': chg}
-    if chg > 0.25:  # 升盘
-        mode = '升盘+低水=阻上(吓退上盘·真实看好)' if (w_live and w_live < 0.9) else '升盘+高水=诱下(吸引下盘)'
-    else:
-        mode = '降盘+高水=诱上(上盘变便宜·诱主)' if (w_live and w_live > 0.9) else '降盘+低水=阻下'
-    return {'模式': mode, '变动': '%.2f球(%s盘)' % (abs(chg), '升' if chg > 0 else '降'), '初盘': h_init, '临场': h_live}
+    lv = water_level_tag(w_live)
+    deep = chg > 0
+    _wd = '低水' if lv == '低' else ('高水' if lv == '高' else '中水')
+    if deep:  # 升盘(加深)
+        mode = ('升盘+低水=阻上(吓退上盘·真实看好)' if lv == '低' else
+                '升盘+高水=诱下(吸引下盘)' if lv == '高' else
+                '升盘+中水=方向不明(水位中性·仅标注)')
+    else:     # 降盘(变浅)
+        mode = ('降盘+高水=诱上(上盘变便宜·诱主)' if lv == '高' else
+                '降盘+低水=阻下' if lv == '低' else
+                '降盘+中水=方向不明(水位中性·仅标注)')
+    if lv is None:
+        mode += '(水位%.2f 非标度·仅盘口)' % w_live if w_live is not None else '(无水位)'
+    return {'模式': mode, '变动': '%.2f球(%s盘·%s)' % (abs(chg), '升' if deep else '降', _wd),
+            '初盘': h_init, '临场': h_live}
 
 def kelly_index_analyzer(kelly_dict):
     """维度6·凯利指数分析(文档4.6): >1.0赔付风险高(方向可能不打出)·<0.85庄家赚(可能打出)

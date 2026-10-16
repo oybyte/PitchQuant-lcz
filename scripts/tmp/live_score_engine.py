@@ -15,11 +15,18 @@
 用法: python live_score_engine.py --home 1.8 --draw 3.5 --away 4.2 --o25 1.85 --u25 1.95 --handi -0.75
       [--cs "1:0=7.5,2:1=8.0,1:1=6.5,..."] [--bqc "胜胜=3.0,平平=5.0,..."]
 """
-import sys, math, json, argparse
+import sys, math, json, argparse, os
 from collections import defaultdict
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except: pass
+
+# 🔴2026-09-15 修复: 本模块从仓库根被导入/运行时模块级 BASE 未定义,
+# 且 ht_ft_cond.json / odds_score_prior.json 实际在 data/tmp/ → 统一走 table_paths
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+from table_paths import find_table  # noqa: E402
 
 # ═══════════════════════════════════════════════════════════════
 # 1. 泊松现场反推（基础分布·49格）
@@ -29,7 +36,14 @@ def pois(k, l):
 
 def solve_lambda_live(oh, od, oa, o25, u25=None):
     """现场反推λ：欧盘去水主胜概率 + O2.5总进球期望 → λh/λa
-    完全基于本场赔率，不查任何表"""
+    完全基于本场赔率，不查任何表
+    🔴2026-09-15 修复: 文档承诺 u25=None 时由 o25 反推, 但 o25 缺失时原实现直接
+    裸算 1/o25 → TypeError: unsupported operand type(s) for /: 'int' and 'NoneType'。
+    该异常从 calc_all L547 冒泡至 L598 兜底 → 打印"现场引擎未执行(降级泊松+查表)",
+    即整个多源融合现场比分引擎(半场反推/CS深度/5源融合)静默失效。
+    契约与 L35 的 min(...)<=1.01 分支一致: 无效输入返回 (None, None), 由调用方显式降级。"""
+    if not o25 or o25 <= 1.01:
+        return None, None
     if u25 is None:
         u25 = max(1.01, 1/(1.04 - 1/o25))
     if min(oh, od, oa, o25, u25) <= 1.01:
@@ -264,9 +278,9 @@ def halftime_precise_matrix(bqc_odds_str, base_matrix):
     P(FT|HT)条件矩阵(ht_ft_cond.json·175476场实测)→全场FT分布·与方向级约束(仅+2pp)本质不同(具体比分+8.9pp@70%)
     输出: {(h,a): prob}或None(无缓存/无bqc/样本不足)"""
     if not bqc_odds_str or base_matrix is None: return None
-    import re, os, json as _j
-    fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ht_ft_cond.json')
-    if not os.path.exists(fp): return None
+    import re, json as _j
+    fp = find_table('ht_ft_cond.json')
+    if not fp: return None
     try:
         d = _j.load(open(fp, encoding='utf-8'))
         cond = {tuple(map(int,k.split(':'))): {tuple(map(int,kk.split(':'))): pp for kk,pp in v.items()} for k,v in d['cond'].items()}
@@ -309,9 +323,9 @@ def _bqc_to_ht_dist(bqc_odds_str):
     halftime_precise_matrix / extract_ht_goals_layer 共用·逻辑单一来源"""
     if not bqc_odds_str:
         return None
-    import re, os, json as _j
-    fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ht_ft_cond.json')
-    if not os.path.exists(fp):
+    import re, json as _j
+    fp = find_table('ht_ft_cond.json')
+    if not fp:
         return None
     try:
         d = _j.load(open(fp, encoding='utf-8'))
@@ -356,8 +370,10 @@ def extract_ht_goals_layer(bqc_odds_str):
     if not r:
         return None
     ht_dist, htd, odds = r
-    import os, json as _j
-    fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ht_ft_cond.json')
+    import json as _j
+    fp = find_table('ht_ft_cond.json')
+    if not fp:
+        raise FileNotFoundError('ht_ft_cond.json 未找到 — 应位于 data/tmp/')
     d = _j.load(open(fp, encoding='utf-8'))
     cond = {tuple(map(int, k.split(':'))): {tuple(map(int, kk.split(':'))): pp for kk, pp in v.items()}
             for k, v in d['cond'].items()}
@@ -607,9 +623,9 @@ def analyze_live(oh, od, oa, o25, u25=None, handi=None, cs_odds=None, bqc_odds=N
 
     # 步骤5.5：16格先验表弱先验
     try:
-        import json as _json, os as _os
-        _fp = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'odds_score_prior.json')
-        if _os.path.exists(_fp):
+        import json as _json
+        _fp = find_table('odds_score_prior.json')
+        if _fp:
             _pr = _json.load(open(_fp, encoding='utf-8'))['bins']
             # 定位格: 按主胜赔率+O2.5 (od档近似)
             def _bin_find(v, lo, hi): return lo <= v < hi

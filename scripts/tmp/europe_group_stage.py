@@ -98,9 +98,13 @@ def detect_trap(home_odds, away_odds, handi, home_motivation, away_motivation, h
             'reason': '双方无欲无求，替补上场放开踢，实际大球概率高(末轮场均3.4球)',
             'action': '考虑大球'})
     # 诱盘4: 深盘+超低水
-    if home_odds < 1.4 and home_water and home_water < 0.8:
+    # 🔴2026-09-15 修复(W4·与 Bug2 同根因): 原判据 home_water < 0.8 是【澳门标度】, 与全仓唯一标度
+    #   欧式 1.8-2.1(低水<1.85·SKILL.md 水位意图量化表)冲突 → 传入欧式真实水位(如1.82)永不触发
+    #   (信号恒灭=等于没有信号)。现按欧式超低水 < 1.85 判定; 标度外(澳门)显式不参与, 不做隐式换算。
+    _w_is_decimal = home_water is not None and 1.8 <= home_water <= 2.1
+    if home_odds < 1.4 and _w_is_decimal and home_water < 1.85:
         traps.append({'type': '深盘超低水诱盘', 'severity': 'HIGH',
-            'reason': '深盘让1.5球+超低水0.8以下=高危诱盘，强队轮换3人以上直接下盘',
+            'reason': '深盘让1.5球+超低水1.85以下(欧式标度)=高危诱盘，强队轮换3人以上直接下盘',
             'action': '观察临场阵容，轮换≥3人则下盘/小球'})
     # 阻盘: 强队战意HIGH但盘口偏浅
     if home_motivation == 'HIGH' and home_odds < 1.8 and handi and ('平/半' in handi or '半球' in handi):

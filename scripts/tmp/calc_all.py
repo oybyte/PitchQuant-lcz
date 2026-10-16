@@ -6,6 +6,9 @@
 import io, sys, os, subprocess, re, json
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)  # 🔴2026-09-15合并(源自workbuddy): 防Windows管道块缓冲/丢行
 
+# 🔴2026-09-15 修复: 数据表统一路径解析(data/tmp/)——原用 dirname(__file__) 拼表名, 表不在 scripts/tmp/ 下
+import table_paths as _tp  # noqa: E402
+
 # ── 必核清单（脚本硬编码·随模型规则更新·替代LLM自我清单）──
 CHECKLIST = [
     # (编号, 必核项, 触发条件(脚本判定·None=必做), 数据来源/脚本)
@@ -180,10 +183,12 @@ def main():
         return
     txt_path = sys.argv[1]
     league = sys.argv[2] if len(sys.argv) > 2 else None
-    # ⚡ 学习成果提示(learned_rules.json·提示级不改变任何计算/判定)
+    # 🔴2026-09-15: 第2位若是 '--xxx' 则说明调用方省略了联赛名 → 曾被当作联赛名吞掉(L1 n=40 无保护)
+    if league and league.startswith('--'):
+        league = None
     try:
-        _lf = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'learned_rules.json')
-        if os.path.exists(_lf):
+        _lf = _tp.find_table('learned_rules.json')   # 🔴2026-09-15: 表在 data/tmp/(原指向 scripts/tmp/ 恒不存在)
+        if _lf:
             import json as _lj
             _lr = _lj.load(open(_lf, encoding='utf-8'))
             _hints = [(t, e.get('rule', '')) for t, e in _lr.items() if e.get('status') in ('提示', '待回测验证', '已固化')]
@@ -380,20 +385,30 @@ def main():
     # 合并(): 原实现 `--eu --handi` 会把 '--handi' 当成 eu 的值 →
     # eu.split(',') 长度≠3 → 现场引擎 ls 未赋值 → 掩盖真实原因。现改为仅当下一个 token 非 '--' 开头才取值。
     eu = handi = o25 = u25 = home_water = elo = inj_h = inj_a = off = None
-    _OVFLAGS = ('--eu', '--handi', '--o25', '--u25', '--home_water', '--elo', '--inj_h', '--inj_a', '--off')
+    # 🔴2026-09-15 修复(Bug1): 加入 '--water' —— calc_v3572 帮助(L70)/README/案例文档全仓只用 --water,
+    # calc_all 原先只认 --home_water → 用户按文档传 --water 时被【静默丢弃】, 水位信号恒缺失且零提示
+    # (实测 --water 1.84 → 诱阻分类总分1/置信33%; --home_water 1.84 → 总分2/置信67%)。
+    _OVFLAGS = ('--eu', '--handi', '--o25', '--u25', '--home_water', '--water', '--elo', '--inj_h', '--inj_a', '--off')
+    _BOOLFLAGS = ('--net',)   # 无值开关(2026-09-14 网络源接入)
     _ov = {}
     for i, a in enumerate(sys.argv):
         if a in _OVFLAGS:
             _ov[a] = sys.argv[i + 1] if (i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith('--')) else ''
-    _missing = [_k for _k in ('--eu', '--handi', '--o25') if _k in _ov and _ov[_k] == '']
+    # 未知参数显式告警(Bug1): 拼错/误用时原先零提示, 计算照跑 → 结论静默降级
+    _unknown = [a for a in sys.argv[3:] if a.startswith('--') and a not in _OVFLAGS and a not in _BOOLFLAGS]
+    if _unknown:
+        print('  ⚠️未知参数(已忽略·不参与计算): %s —— 已知: %s'
+              % (' '.join(_unknown), ' '.join(_OVFLAGS + _BOOLFLAGS)))
+    _missing = [_k for _k in ('--eu', '--handi', '--o25', '--water', '--home_water') if _k in _ov and _ov[_k] == '']
     if _missing:
-        print('  ⚠️参数无值(被跳过): %s —— 用法: --eu 主,平,客 --handi <让球值> --o25 <O2.5赔率> [--u25 <U2.5赔率>]'
+        print('  ⚠️参数无值(被跳过): %s —— 用法: --eu 主,平,客 --handi <让球值> --o25 <O2.5赔率> [--u25 <U2.5赔率>] [--water <主水位1.8-2.1>]'
               % ' '.join(_missing))
     eu = _ov.get('--eu') or None
     handi = _ov.get('--handi') or None
     o25 = _ov.get('--o25') or None
     u25 = _ov.get('--u25') or None
-    home_water = _ov.get('--home_water') or None
+    # --water 为主水位别名(与 --home_water 等价·同 1.8-2.1 欧式标度)
+    home_water = _ov.get('--home_water') or _ov.get('--water') or None
     elo = _ov.get('--elo') or None
     inj_h = _ov.get('--inj_h') or None
     inj_a = _ov.get('--inj_a') or None
@@ -505,7 +520,10 @@ def main():
     # 审计修复(P1-4·审计): 联赛基准自动输出(league_table.json·大球率/平局率/本场档位H-D-A) — 原靠人工记→易漏「Step0-6 联赛校准缺基准」→ 脚本化零遗漏(审计项0-6·硬核④平局基准自动满足)
     if is_top5:
         try:
-            _lt = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'league_table.json'), encoding='utf-8'))
+            _ltp = _tp.find_table('league_table.json')   # 🔴2026-09-15: 表在 data/tmp/(原指向 scripts/tmp/ → 恒"读取失败·降级人工查表")
+            if not _ltp:
+                raise FileNotFoundError('league_table.json 未找到 — 应位于 data/tmp/')
+            _lt = json.load(open(_ltp, encoding='utf-8'))
             _lk = next((k for k in _lt if k.startswith(_league_cn)), None)
             if _lk:
                 _lv = _lt[_lk]
