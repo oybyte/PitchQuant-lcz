@@ -1,0 +1,57 @@
+{
+ "0.00-0.15": {
+  "bias_pp": -2.34,
+  "n": 25,
+  "implied_mid": 0.075,
+  "actual": 0.04
+ },
+ "0.15-0.30": {
+  "bias_pp": 3.47,
+  "n": 77,
+  "implied_mid": 0.225,
+  "actual": 0.26
+ },
+ "0.30-0.40": {
+  "bias_pp": -5.97,
+  "n": 93,
+  "implied_mid": 0.35,
+  "actual": 0.29
+ },
+ "0.40-0.50": {
+  "bias_pp": 7.81,
+  "n": 89,
+  "implied_mid": 0.45,
+  "actual": 0.528
+ },
+ "0.50-0.60": {
+  "bias_pp": 9.41,
+  "n": 59,
+  "implied_mid": 0.55,
+  "actual": 0.644
+ },
+ "0.60-0.70": {
+  "bias_pp": 11.92,
+  "n": 52,
+  "implied_mid": 0.65,
+  "actual": 0.769
+ },
+ "0.70-0.80": {
+  "bias_pp": 3.79,
+  "n": 33,
+  "implied_mid": 0.75,
+  "actual": 0.788
+ },
+ "0.80-1.00": {
+  "bias_pp": 3.15,
+  "n": 13,
+  "implied_mid": 0.9,
+  "actual": 0.923
+ },
+ "_meta": {
+  "source": "441场盲测实盘(batch_2_5_8/74/140/203)",
+  "method": "主胜隐含档 -> 实际主胜率, bias_pp = (actual - implied_mid)*100",
+  "n_total": 441,
+  "min_n": 30,
+  "generated_by": "build_prob_calibration.py"
+ }
+}

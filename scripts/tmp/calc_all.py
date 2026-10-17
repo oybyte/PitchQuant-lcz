@@ -341,14 +341,22 @@ def main():
             _sys2.path.insert(0, _oldir)
             try:
                 import data_bridge as _db
-                # 离线模式（快·保证源状态写入）·网络源仅记录 skipped
-                # 修复: 新增 --net 开关 —— **完整分析必须传 --net**，否则网络源
-                # (clubelo ELO/xg/api_football/h2h/news/euro_odds) 全部 skipped → prediction_log
-                # 仅 1/8 源(27键/18非空) → 学习模块特征残缺。传 --net 后 3-4/8 源(32-37键)。
-                _netflag = ('--net' in sys.argv)
+                # 🔴2026-10-18 联网策略（用户指令·唯一真源 net_policy）:
+                #   **分析/预测比赛 → 绝对禁止联网**。
+                #   原实现留了 --net 开关（默认关但可开）→ 分析期间联网成为可能。
+                #   现改为无条件 for_analysis()：恒返回全关，且不接受任何绕过参数。
+                #   与 AGENTS.md §0「离线优先」一致；伤停维度按三态标注
+                #   「无数据(离线模式·分析禁止联网)」，不再作为联网例外。
+                try:
+                    if _oldir not in _sys2.path:
+                        _sys2.path.insert(0, _oldir)
+                    import net_policy as _np
+                    _netkw = _np.for_analysis()
+                except Exception:
+                    _netkw = {'net_injury': False, 'net_odds': False, 'net_form': False}
                 # 修复: 原用 _league_cn（392行才定义）→ UnboundLocalError → 每次静默降级 txt(1/8源)
                 _lcn = norm_league(league)
-                _br = _db.collect(txt_path, _lcn, net=_netflag)
+                _br = _db.collect(txt_path, _lcn, net=False, **_netkw)
                 _feat = _br.get('features') or {}
                 _diag = {'detail': (_br.get('rich') or {}).get('txt_detail', {}),
                          'sources': _br.get('status', {}), 'completeness': _br.get('completeness')}
@@ -389,7 +397,10 @@ def main():
     # calc_all 原先只认 --home_water → 用户按文档传 --water 时被【静默丢弃】, 水位信号恒缺失且零提示
     # (实测 --water 1.84 → 诱阻分类总分1/置信33%; --home_water 1.84 → 总分2/置信67%)。
     _OVFLAGS = ('--eu', '--handi', '--o25', '--u25', '--home_water', '--water', '--elo', '--inj_h', '--inj_a', '--off')
-    _BOOLFLAGS = ('--net',)   # 无值开关(2026-09-14 网络源接入)
+    # 🔴2026-10-18: '--net' 已从 --bool 白名单移除 —— 分析阶段禁止联网,
+    #   该参数**不再有任何效果**。若用户仍传入, 会被下面的 _unknown 分支显式告警
+    #   (而不是静默接收后无效), 避免"传了以为能联网"的误解。
+    _BOOLFLAGS = ()
     _ov = {}
     for i, a in enumerate(sys.argv):
         if a in _OVFLAGS:
@@ -399,6 +410,9 @@ def main():
     if _unknown:
         print('  ⚠️未知参数(已忽略·不参与计算): %s —— 已知: %s'
               % (' '.join(_unknown), ' '.join(_OVFLAGS + _BOOLFLAGS)))
+        if '--net' in _unknown:
+            print('  🔴 --net 已废弃: **分析阶段禁止联网**(net_policy.for_analysis 恒全关)。')
+            print('     联网策略见 AGENTS.md §0; 复盘需用户明确要求才可联网。')
     _missing = [_k for _k in ('--eu', '--handi', '--o25', '--water', '--home_water') if _k in _ov and _ov[_k] == '']
     if _missing:
         print('  ⚠️参数无值(被跳过): %s —— 用法: --eu 主,平,客 --handi <让球值> --o25 <O2.5赔率> [--u25 <U2.5赔率>] [--water <主水位1.8-2.1>]'
@@ -507,6 +521,23 @@ def main():
                         _span = max(_ps) - min(_ps); _mx = max(_ps)
                         print('    分布跨度%.0fpp(众数%.0f%%): %s' % (_span, _mx,
                             '🔴量级不确定·宽候选池按分布比例覆盖0-1到4+全档·禁锁单中心(147型2:0独锁误判根因)' if _span < 20 else ('中等·锁中心±1档' if _span < 35 else '量级明确·锁中心档')))
+                        # 🔴2026-10-17 调整(P1·441场盲测实测): 小球档判向不可用
+                        #   判大球 235 场命中 68.5% · 判小球 72 场命中恰 50.0%(真随机);
+                        #   反转成判大球同为 50.0% → 说明「判小球」既无能力也不可利用。
+                        #   → 小球档一律降级为「中性·不判」，只保留量级分布供比分候选池使用。
+                        #   (改动落在③展示/判定层，不触碰①输入解析①②计算链)
+                        SMALL_BALL_NEUTRAL = True     # 小球档停判开关（唯一真源）
+                        _o = float(o25)
+                        _dir = '大球' if _o < 1.90 else ('小球' if _o > 2.10 else '中性')
+                        if SMALL_BALL_NEUTRAL and _dir == '小球':
+                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f>2.10 属小球档)' % _o)
+                            print('       ↳ 依据: 441场盲测·判小球命中仅 50.0%%(真随机)·反转同为50%%·不可利用')
+                            print('       ↳ 仍然输出量级分布(上方)与总进球区间·供比分候选池使用; 仅**不给出大/小方向**')
+                        elif SMALL_BALL_NEUTRAL and _dir == '中性':
+                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f 落在 1.90-2.10 中性带)' % _o)
+                        else:
+                            print('    🔴大小球判向: **大球**(O2.5=%.2f<1.90 属强/中信号档)' % _o)
+                            print('       ↳ 依据: 441场盲测·判大球命中 68.5%%(n=235·95%%CI 62.6-74.4%%)·可用')
                         if float(o25) >= 2.3:
                             print('    🔴档≥2.3(总3+球%.0f%%≥1/3): 勿判强小球·对攻/防线伤停(影响分>=4)上场总进球中心上调1档·候选池强制含3:2/2:3对攻比分' % (_t3*100))
                         elif float(o25) <= 1.7:
