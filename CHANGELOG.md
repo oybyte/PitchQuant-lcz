@@ -98,6 +98,33 @@ All notable changes to this project are documented here.
 - `AGENTS.md` 新增硬性纪律第 7–12 条（亚盘线为准 / O2.5 禁手算 / 锚由模型定 / HAF 乘性 / 门限单一真源 / 跨机构自动解析）
 - `SKILL.md` 增补修复表与口径变更点；`calc_all` 参数行删除已废弃的 `--net` 与 `--max_*` 必传要求
 - `calc_homeaway.py` 重构为可导入模块（`haf_couple` / `haf_couple_checked`），建表逻辑移入 `_build_table()`
+- `check_sync.py` 公开版可用化（见下）
+
+### 🔧 check_sync.py 公开版可用化（原第 2 条校验即崩栈）
+
+| 项 | 修复前 | 修复后 |
+|:--|:--|:--|
+| 可执行校验 | **1 条**（第 2 条 FileNotFoundError 崩栈） | **238 条** |
+| 结果 | 崩溃，无输出 | ✅161 / ⚠️0 / ❌0 / ⏭️77 |
+| 退出码 | 非 0（崩溃） | 0（仅 SKIP 时） |
+
+- **① 纯路径差异**：`.reasonix/skills/` → `skills/`（33 处）、`data/analysis_template.md` → `templates/`。公开版技能目录一直存在，只是路径名不同
+- **② 脚本自身 bug**：`VER='V3.5.74'` 而 `VER_RE=r'V3\.5\.72'` → 「AGENTS.md 含 V3.5.74」恒报 ❌；另修 4 处过时判据（联赛 skill `==5` 实为 6、`_netflag` 已在联网策略重构中移除、硬编码 `~/Desktop` 本机路径）
+- **③ 公开版确实没有的资产**：`Matches.csv` / `europe/` / `case-library/` / `online_learning/` / `足球分析模型.txt`，以及仅完整版 AGENTS.md 收录的 30+ 长尾小节 → 显式 SKIP 并打印原因与路径
+- **实现**：零侵入包装四个内建名（`open` / `os.listdir` / `glob.glob` / `os.path.exists`），不改 180 处调用点
+- **诚实性**：被 SKIP 的「代码脚本检查」条数为 **0** —— 跳过项全部是数据资产与文档小节
+
+### 🔧 anchor 候选参考方向约束
+
+- **缺陷**：同一块输出自相矛盾 —— 判 `1:1` 违反方向，却又把 `1:1` 列为「约束内候选参考」
+- **根因**：上版给 `anchor_market_check` 加了 `direction` 交叉校验（能发现冲突），但**推荐筛选那段没跟着改**——只检查净胜档/大小球/盘口，漏了 direction；兜底候选表同样未过滤
+- **修复**：建议锚与兜底候选均按方向裁剪。方向=主胜 → `1:0/2:1/2:0`；方向=客胜 → `0:1`
+
+### ✅ 测试
+
+- 共 **209 项**（115 → 209），含 `test_check_sync_portable.py`（7 项：不得崩栈/执行数/SKIP 带原因/VER_RE 自洽/退出码语义）
+- 关键用例做过红绿验证：移除修复 → 立即变红，恢复 → 变绿
+- `scripts/tmp/v259_consistency.py`：数值自洽体检（skew 与隐含一致 / λ 与聚合同向 / 概率和=100 / 锚是否含方向），实测**0 异常**
 
 ---
 

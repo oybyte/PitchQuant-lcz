@@ -15,8 +15,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 安装测试依赖
+        run: python -m pip install --quiet pytest
+
+      - name: 回归测试
+        run: python -m pytest tests -q
+
       - name: 全部脚本语法编译
         run: python -m compileall -q scripts/ templates/ || (echo "语法错误" && exit 1)
+
+      - name: 同步校验（公开版：缺失资源自动 SKIP）
+        run: python scripts/tmp/check_sync.py
 
       - name: 蒸馏表 JSON 完整性（可解析 + 非空）
         run: |
