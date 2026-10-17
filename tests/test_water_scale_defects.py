@@ -144,3 +144,30 @@ def test_europe_group_stage_deep_low_water_scale(water, expect_trap):
     got = r.stdout.strip()
     assert got == ("1" if expect_trap else "0"), (
         "water=%s 期望诱盘=%s 实得「%s」| %s" % (water, expect_trap, got, r.stderr[-300:]))
+
+
+# ── W5: 欧式低水可低于 1.8 (回归·德乙本场实测触发) ────────────────
+@pytest.mark.parametrize("water", [1.60, 1.72, 1.75, 1.79, 1.80, 1.84])
+def test_low_decimal_water_below_1_8_still_participates(water):
+    """欧式低水可 <1.8: 澳门/香港 0.60-0.80 加1 = 1.60-1.80。
+    量化表「低水<1.85」无下界 → 1.79(澳门0.79) 是合法低水, 必须参与且判「低」。
+    原下界把 1.79 误判为「标度外·不参与」→ 低水升档信号丢失(德乙本场实测)。"""
+    code = ("import sys; sys.path.insert(0, %r);"
+            "from calc_v3572 import water_in_scale as ins, water_level_tag as tag;"
+            "print(ins(%r)); print(tag(%r))") % (TMP, water, water)
+    r = snippet(code)
+    out = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    assert len(out) >= 2, "未输出: %s | %s" % (r.stdout, r.stderr[-200:])
+    assert out[0] == "True", ("欧式低水 %.2f 被判标度外(下界过紧) → 水位信号丢失" % water)
+    assert out[1] == "低", "欧式低水 %.2f 应判「低」实得「%s」" % (water, out[1])
+
+
+@pytest.mark.parametrize("water", [0.79, 0.90, 1.10])
+def test_macau_scale_still_rejected_after_widening(water):
+    """加宽下界不得削弱缺陷拦截能力: 澳门原始值仍须判标度外。
+    两标度间存在空档(澳门<=1.15, 欧式>=1.60) → 分界取 1.5 可兼顾两侧。"""
+    code = ("import sys; sys.path.insert(0, %r);"
+            "from calc_v3572 import water_in_scale as ins; print(ins(%r))") % (TMP, water)
+    r = snippet(code)
+    assert r.stdout.strip() == "False", (
+        "澳门标度 %.2f 应判标度外(参与则标度混淆复发) 实得「%s」" % (water, r.stdout.strip()))

@@ -12,6 +12,14 @@
 import sys, json, argparse
 sys.stdout.reconfigure(encoding='utf-8')
 
+# 2026-09-15: 水位标度唯一真源(禁本地硬编码副本) —— 标度仅一处定义(calc_v3572)
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+try:
+    from calc_v3572 import water_in_scale as _water_in_scale
+except Exception:  # 独立部署兜底: 与 calc_v3572 同口径(闭区间·含端点)
+    def _water_in_scale(w):
+        return w is not None and 1.5 <= w <= 2.1
+
 # ═══════════════════════════════════════════════════════════════
 # 1. 战意等级评估（基于积分形势+轮次）
 # ═══════════════════════════════════════════════════════════════
@@ -101,7 +109,7 @@ def detect_trap(home_odds, away_odds, handi, home_motivation, away_motivation, h
     # 🔴2026-09-15 修复(W4·与 Bug2 同根因): 原判据 home_water < 0.8 是【澳门标度】, 与全仓唯一标度
     #   欧式 1.8-2.1(低水<1.85·SKILL.md 水位意图量化表)冲突 → 传入欧式真实水位(如1.82)永不触发
     #   (信号恒灭=等于没有信号)。现按欧式超低水 < 1.85 判定; 标度外(澳门)显式不参与, 不做隐式换算。
-    _w_is_decimal = home_water is not None and 1.8 <= home_water <= 2.1
+    _w_is_decimal = _water_in_scale(home_water)   # 单一真源(与 calc_v3572 同口径)
     if home_odds < 1.4 and _w_is_decimal and home_water < 1.85:
         traps.append({'type': '深盘超低水诱盘', 'severity': 'HIGH',
             'reason': '深盘让1.5球+超低水1.85以下(欧式标度)=高危诱盘，强队轮换3人以上直接下盘',
