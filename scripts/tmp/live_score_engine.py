@@ -236,6 +236,13 @@ def anchor_market_check(top_scores, oh, od, oa, o25=None, u25=None, handi=None, 
             if _big and tot <= 2: continue
             if _small and tot >= 3: continue
             if handi is not None and ((handi < 0 and net < 0) or (handi > 0 and net > 0)): continue
+            # 🔴2026-10-17(第三轮复跑): 候选参考也必须满足**方向约束**。
+            #   原实现只筛净胜档/大小球/盘口，漏掉了本轮新增的 direction 维度 →
+            #   实测「方向=主胜」时仍给出 1:1(平局) 作为候选参考，与上一条 violations 自相矛盾。
+            if direction in _DIR2OUT:
+                _sc_out = 'H' if net > 0 else ('D' if net == 0 else 'A')
+                if _sc_out != _DIR2OUT[direction]:
+                    continue
             res['suggestion'].append(sc)
             if len(res['suggestion']) >= 3:
                 break
@@ -249,6 +256,20 @@ def anchor_market_check(top_scores, oh, od, oa, o25=None, u25=None, handi=None, 
             elif _small:
                 _base = {'H3+': ['2:0', '3:0'], 'H2': ['2:0', '1:0'], 'H1': ['1:0', '2:0'],
                          'D0': ['0:0', '1:1'], 'A1': ['0:1', '1:0']}.get(band, _base)
+            # 🔴方向兜底：若方向引擎给了结论，仅保留该方向内的比分（禁给反方向候选）
+            if direction in _DIR2OUT:
+                _wdir = _DIR2OUT[direction]
+                _kept = []
+                for _s in _base:
+                    try:
+                        _h, _a = map(int, _s.split(':'))
+                    except Exception:
+                        continue
+                    _o = 'H' if _h > _a else ('D' if _h == _a else 'A')
+                    if _o == _wdir:
+                        _kept.append(_s)
+                if _kept:
+                    _base = _kept
             res['suggestion'] = _base[:2]
             res['note'] = '候选池内无满足市场约束者 → 按市场档基准给出（须扩展候选池）'
     return res

@@ -195,3 +195,36 @@ def test_anchor_check_passes_when_anchor_matches_direction():
     r = snippet(code)
     assert "DI 0" in r.stdout, "锚已是平局且方向=平局，方向维度不应判违反: " + r.stdout + r.stderr
     assert "HA False" in r.stdout, "不应报方向-锚硬冲突: " + r.stdout
+
+# ══════════ 第三轮: 候选参考不得违反方向 ══════════
+def test_suggestion_respects_direction():
+    """「约束内候选参考」必须落在方向引擎判定内。
+
+    实测缺陷: 方向=主胜时仍给出 1:1(平局) 作为候选，与同批 violations 自相矛盾。
+    """
+    code = (BASE_V3.replace("calc_v3572 as C", "live_score_engine as L") + chr(10)
+            + "r = L.anchor_market_check([\"1:1\", \"2:1\", \"2:0\", \"1:0\"], 1.42, 4.35, 5.60,"
+            + " o25=1.73, handi=-1.0, direction=\"\\u4e3b\\u80dc\")" + chr(10)
+            + "print(chr(83), \",\".join(r[\"suggestion\"]))" + chr(10))
+    r = snippet(code)
+    assert "S " in r.stdout, r.stdout + r.stderr
+    sug = r.stdout.split("S ", 1)[1].strip()
+    assert sug, "未给出任何候选参考"
+    for sc in sug.split(","):
+        h, a = map(int, sc.split(":"))
+        assert h > a, "方向=主胜，候选参考却给了 %s（非主胜）" % sc
+
+
+def test_suggestion_respects_direction_away():
+    """客胜方向同理。"""
+    code = (BASE_V3.replace("calc_v3572 as C", "live_score_engine as L") + chr(10)
+            + "r = L.anchor_market_check([\"1:1\", \"0:1\", \"1:2\"], 2.48, 3.03, 2.55,"
+            + " o25=2.52, handi=0, direction=\"\\u5ba2\\u80dc\")" + chr(10)
+            + "print(chr(83), \",\".join(r[\"suggestion\"]))" + chr(10))
+    r = snippet(code)
+    assert "S " in r.stdout, r.stdout + r.stderr
+    sug = r.stdout.split("S ", 1)[1].strip()
+    assert sug, "未给出任何候选参考"
+    for sc in sug.split(","):
+        h, a = map(int, sc.split(":"))
+        assert a > h, "方向=客胜，候选参考却给了 %s（非客胜）" % sc
