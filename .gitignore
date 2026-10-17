@@ -55,3 +55,9 @@ data/tmp/_frk_*
 # 抓取器缓存（scripts/tmp 下的产物，非脚本本身）
 scripts/tmp/_probe_*.py
 scripts/tmp/std_*.txt
+
+# data/tmp 下的历史案例样本（跑数副产物·从未入库·无代码引用）
+# 用 ^ 锚定 data/tmp 根层，避免误伤子目录里已入库的资产
+data/tmp/raw_*.txt
+data/tmp/txt_*.txt
+data/tmp/analysis_*.md
