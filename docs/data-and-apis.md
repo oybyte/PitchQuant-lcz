@@ -121,7 +121,7 @@ HTTP_PROXY=http://127.0.0.1:7897
 □ ⑦ 准备一个竞彩赔率 txt（含 ≥2 个时点）
 □ ⑧ 跑通：python scripts/tmp/calc_all.py <txt> <联赛> [参数…]
 □ ⑨ 环境自检：python -m pytest tests -q          # 回归测试（公开版可跑）
-□ ⑨' （完整版可选）python scripts/tmp/check_sync.py  # 238 条同步校验·依赖私有目录·公开版会报错
+□ ⑨' python scripts/tmp/check_sync.py  # 238 条同步校验·公开版可用（缺失资源自动 SKIP 并注明原因）
 □ ⑩ 看过 examples/ 里的完整案例
 ```
 
