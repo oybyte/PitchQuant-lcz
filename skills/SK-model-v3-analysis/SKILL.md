@@ -171,7 +171,7 @@ Step 0: 按顺序执行，全部强制不可跳过
 🔴**场次错配防护（审计 P0）**: `fundflow_books.json` 全局单文件 → 上场残留污染下场 → `market_consensus.match_check`（txt 队名 vs books home/away）·mismatch→calc_all 拒绝消费·unverifiable→标未校验·写入端 `fetch_books`/`the_odds_api_fetch books` 均带 fixture/home/away · `unwrap_books` 三格式兼容（治包 dict 崩溃）。
 | B5 footballcharts | ⚠️源已废弃（DNS失效）→不用 | — | understat_xg+SK-xg-depth |
 | news/xG | data_bridge 内置（Bing News RSS / understat） | 禁标"需VPN跳过"（VPN默认已开） | 已执行无内容=如实标注 |
-| calc_all | 必传 **--net** + --eu/--handi(欧盘均衡线)/--o25/--u25 [--elo --inj_h --inj_a] + --max_h/--max_d/--max_a(跨机构最高价·🔴必传·打通 P0-1 升权) | 缺 --net → 网络源全 skipped | 参数缺失三态降级 |
+| calc_all | 必传 `--eu`/`--handi`(亚盘均衡线)/`--o25`/`--u25` [可选 `--water` `--elo` `--inj_h` `--inj_a`] | 🔴**`--net` 已废弃**（`net_policy.for_analysis()` 恒全关·传入会显式告警）·🔴**`--max_h/--max_d/--max_a` 不再需要**：跨机构分歧由 calc_all **自动解析输入文件头的「最高价/最低价」行**（2026-10-17 P1-4） | 参数缺失三态降级·`--o25` 缺失时可用 `ou_from_asia.py` 由亚盘线折算 |
 🔴**实测**：fixtures 纯date=1566场✓ · 误带 league+season=被拦截并指引✓ · 同带 date=自动剥离后正常返回✓
 
 ### 🔴数据源主从（哪个真实用哪个·四源升级）
@@ -190,6 +190,49 @@ Odds-API 动态获取（mcp__odds-api__*，见 SL-odds-convert 数据源2）：
 - `get_odds` → 1X2/让球(Spread)/大小球(Totals)/半全场(HT-FT)/比分/BTTS
 - `get_odds_movements` → 赔率变动线（ML=4点，Spread需marketLine=亚盘水位=5点，带时间戳）
 - 亚盘水位：`market=Spread&marketLine=-0.5` → 上盘/下盘水位逐点变动
+
+---
+
+## 🔴2026-10-17 全链路修复（P0×4 · P1×4 · P2×3）
+
+> 触发：2026-10-17 对 data-2.5.9 待赛 22 场做端到端分析时暴露。改动落在 ②计算层与 ③展示/判定层，
+> **不改模型口径**（方向铁依据 / 命中口径 / 去水算法均不变）。每条附单测，`python -m pytest tests -q` 全绿方可发布。
+
+| 编号 | 缺陷 | 根因 | 修复 | 单测 |
+|:--|:--|:--|:--|:--|
+| **P0-1** | 22/22 场输出「V5跨市场: 未提供欧盘」·C08 脚本侧恒空 | `calc_all` 组 cmd 只拼 `txt_path + league`，`--eu/--handi/--o25/--u25/--water` 全被丢弃 | 组 cmd 时逐项透传；`calc_match` 侧早解析 `--handi/--water` | `test_calc_all_passthrough.py` |
+| **P0-2** | 「诱阻分类预计算」标题后恒为空行·C16 永久失效 | `calc_match.trap_classify_output` 只有 def、**零调用点**（孤儿函数），且与 `calc_v3572.match_classifier` 双实现 | `run_extensions` 接线；欧盘齐备即调用，缺则三态；实现收敛为委托 | 同上 |
+| **P0-3** | 净胜档候选按体彩让球 L（固定 -1/0/+1）取，**亚盘线从未进解析**（实测 23/23 场不一致） | `margin_candidates_pool` 用 `_rq_handicap` 当唯一依据 | 双轨：**亚盘线（`--handi`）= 唯一依据**，体彩 L 仅用于让球盘去水；输出恒打「亚盘线 / 体彩L / 一致?」 | 同上 |
+| **P0-4** | 项目无「亚盘四分之一线 → O2.5」模块，执行者现场推导且**首版算错**（22 场 O2.5 全偏高：埃弗顿 2.39→应 1.67） | 四分线=half-win/half-loss，直接二元去水系统性偏差；该规则未沉淀成代码 | 新增 **`scripts/tmp/ou_from_asia.py`**：EV 中性拆半注解，`--line/--over/--under`，7 类线型 + 单调性 + CLI 拒绝未覆盖线型 | `test_ou_from_asia.py`（15 项） |
+| **P1-1** | `anchor_market_check` 用**未回测经验公式**替 LLM 选建议锚并称「必须按建议取锚」；15/22 场「⚠矛盾」既不说违反哪条也无唯一解 | 经验公式（系数 1.35/-1.35/-0.05）无出处、未标定，却当硬结论 | 改输出 **`constraints`（约束三元组）+ `violations`（逐条违反）**；`suggestion` 降级为「约束内候选参考」；`market_net_band` 标 `MARKET_NET_BAND_UNVALIDATED` | `test_trace_and_anchor.py` |
+| **P1-2** | SKILL 要求伤停缺失必输出留痕行，脚本层**无落点**（实测 0/23 场） | 无接线 | `calc_all` 恒打伤停三态行（缺失写「原因:分析禁止联网」；已提供写「已提供」） | 同上 |
+| **P1-3** | `prediction_log` 沿用输入 txt 基名 → 同场因空格/下划线产生**双份**、`--help.json` 落盘（497 文件） | 无规范化 | `_canonical_log_name()`：`YYYY-MM-DD_HHMM_联赛_主队_vs_客队.json`（同场恒同名） | 同上 |
+| **P1-4** | SKILL 宣称「必传 `--max_h/--max_d/--max_a`」，脚本回「未知参数(已忽略)」→ 修正35 **从未被消费** | 声明了但未实现 | 改为**自动解析输入头「最高价/最低价」行**（无需手传），显式传参仍可覆盖；缺失走三态 | `test_books_skew_haf.py` |
+| **P2-1** | HAF/ELO/xG 三层缺失写法不统一，calc_all 侧 HAF/xG **完全无声**（本批 14/22、20/22 缺） | 三态只在文档里，无统一出口 | 新增 `_layer_state_lines()`：C13/C26/C27 **恒输出三行**，缺失必写原因 | `test_three_state_layers.py` |
+| **P2-2** | HAF 对抗耦合对「强客队 vs 弱主队」系统性低估（斯特拉斯堡 vs PSG：市场客胜 68.3% → HAF 39.6%） | 三项平均中 `(基准 - 主队失球)` 可为**负**，把 λa 硬拽下来 | 改**乘性（泊松对数线性）**耦合 + `haf_couple_checked` 守卫（`|Δλ|>0.5` 只标注不喂判定）；建表拆出 `_build_table()` 使公开版可无 CSV 查表 | 同上 |
+| **P2-3** | 弱共识门限两处不一致（`calc_match` 150% vs 学习提示 130%）→ 130-150% 区间可能「须并列」却「不必三向覆盖」 | 硬编码分散 | `WEAK_SKEW_PCT = 150.0` / `STRONG_SKEW_PCT = 200.0` **单一真源**，全部引用常量 | 同上 |
+
+### 新增调用规范（覆盖旧写法）
+
+```bash
+# ① 只有亚洲大小球线时，先折算 O2.5（禁手工推导）
+python scripts/tmp/ou_from_asia.py --line 2.75 --over 0.82 --under 0.98 --json
+#   → {"lambda":3.10,"p25_over":0.599,"o25":1.67,"u25":2.49,...}
+
+# ② 常规调用（--max_* 已不需要·跨机构分歧自动解析输入头）
+python scripts/tmp/calc_all.py <txt> 英超 --eu 3.17,3.70,2.23 --handi 0.25 --o25 1.67 --u25 1.72 --water 1.96
+
+# ③ HAF（公开版无 Matches.csv 亦可查表）
+python scripts/tmp/calc_homeaway.py --ha "Strasbourg,Paris SG" --league 法甲
+```
+
+### 口径变更点（执行者必须知道）
+
+1. **净胜档依据 = 亚盘线**，不是体彩让球 L。输出会打 `[netmargin-handi] 亚盘线 X / 体彩让球L Y / 一致: 是|否`。不一致时**以亚盘线为准**。
+2. **锚的取法交回 LLM**。脚本只给约束与违反项；「建议锚」= 约束内候选参考，**不是必须采用**。
+3. **`market_net_band` 是未回测经验公式**，不得与「V6 四象限 22.7 万场」同档引用。
+4. **HAF 用乘性耦合**，且 `|λ_HAF - λ_市场| > 0.5` 时只作偏移标注、**不喂方向判定**。
+5. **弱共识门限固定 150%**（`WEAK_SKEW_PCT`）；130% 写法已废弃。
 
 ---
 

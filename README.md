@@ -217,9 +217,14 @@ python scripts/tmp/calc_all.py <your-odds.txt> 英超 --eu 1.55,4.20,6.00 --hand
 ```
 Outputs: de-vig probabilities → hardcore items → direction engine → live score engine (multi-source fusion) → consistency checks (anchor vs market / magnitude) → a generated checklist you must walk through.
 
+Two things worth knowing about the inputs:
+- Cross-book divergence (correction #35) is **auto-parsed from the input header** — if your odds file carries a line like `跨机构即盘：348 家 · 最高价 3.4/3.75/2.48 · 最低价 2.72/3.0/1.65`, no extra flags are needed. No such line → it prints `无数据(原因)` rather than silently substituting a single bookmaker.
+- If you only have the Asian totals line (`2.5/3`, `3/3.5` …), do **not** hand-convert to O2.5 — quarter lines are half-win/half-loss and naive de-vigging skews them. Use `python scripts/tmp/ou_from_asia.py --line 2.75 --over 0.82 --under 0.98 --json` and pass the resulting `o25`/`u25`.
+
 **Step 6 — Verify the environment**
 ```bash
 python -m compileall -q scripts/ templates/          # syntax check
+python -m pytest tests -q                            # regression suite
 python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1.90 --u25 1.85 --top 5
 # Expected: λh/λa values + score Top5 table printed
 ```
@@ -340,7 +345,7 @@ $ python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1
 4. **🛡️ 四层防过拟合门禁** —— 任何新特征/权重/"学习成果"必须通过：**（a）** 时间分割回测且 **p<0.05**；**（b）** 样本量门槛；**（c）** 滚动 20 场偏差 >10pp ⇒ **自动回滚**为仅展示；**（d）** 超范围值裁剪。**无证据 = 无判定权。**
 5. **🧾 证据绑定自检** —— "**没有数字 = 没有执行**"。每条判定附数值；每个不适用项必须显式三态标注（`触发(数值)` / `不触发(原因)` / `无数据(原因)`）。**静默跳过在结构上不可能发生。**
 6. **🚦 数据链三层风险纪律** —— 改动分三类：①输入/解析（🔴 高危）②数据表（🔴 改键名=下游静默失效）③展示/留痕（🟢 安全区）。**新增标注只允许放第③层**。这条纪律的由来：本项目历史上三起事故**全部**是①层的格式不匹配——而且是**静默**失败。
-7. **🧠 34 个领域技能，而不是一段提示词** —— 裁判规则（rule51–70）、五大联赛子模型（每个蒸馏自 8,700–9,300 场）、139 支球队的主客场因子表、欧战两回合逻辑……知识是**可版本化的文件**，不是提示词里的"感觉"。
+7. **🧠 36 个领域技能，而不是一段提示词** —— 裁判规则（rule51–70）、五大联赛子模型（每个蒸馏自 8,700–9,300 场）、139 支球队的主客场因子表、欧战两回合逻辑……知识是**可版本化的文件**，不是提示词里的"感觉"。
 8. **📚 可审计存档** —— 每场分析持久化：原始赔率、计算概率、规则触发痕迹、学习闭环标记，以及（赛后）真实结果——让你能在**自己的历史**上做长期校准研究。
 9. **💹 跨机构分歧，而非水位玄学** —— 22.7 万场检验否决了"庄家靠平衡两边吃水"的迷思：大小球抽水（vig）分档**不携带方向信息**（47.9 / 52.6 / 49.9%，非单调）。真正有效的是**机构间定价收敛**：热门侧隐含价差 **<2%** 时方向命中 **62.6%**（价差 >10% 时仅 **45.0%**），深盘热门（<1.50）更升至 **81.5%**。跟 sharp 资金 = **看机构是否一致**，而非看水位漂移。纪律：**只有"收敛"可以调置信度，且最多 ±1 档。**
 10. **🌍 国际赛事独立子模型** —— 国家队 ≠ 俱乐部。**658 场欧国联（四届）**实测显示：主场优势更平（60.7 vs 俱乐部约 65）、存在**客队热门平局泄漏**（Elo −200…−50 时客胜仅 **35%**、平 **31%**，即**赢不下 65%**—— 绝不可当稳胆）、进球按**谁热门**不对称分流（主热门 O2.5 **72%** vs 客热门 **37%**）。因此五大联赛通用档表在此被显式标注**超域 · 仅参考**。
@@ -464,9 +469,14 @@ python scripts/tmp/calc_all.py <你的赔率.txt> 英超 --eu 1.55,4.20,6.00 --h
 ```
 输出包含：去水概率 → 硬核 12 项 → 方向引擎 → **实时比分引擎**（多源动态融合）→ 一致性检查（锚 vs 市场 / 锚 vs 量级）→ 一份**必核清单**（LLM 必须逐项走完）。
 
+两点输入须知：
+- **跨机构分歧（修正35）自动解析输入头**——赔率文件里若有 `跨机构即盘：348 家 · 最高价 3.4/3.75/2.48 · 最低价 2.72/3.0/1.65` 这样的行，无需再传参数；没有该行会输出 `无数据(原因)`，**不会**拿单家赔率冒充跨机构。
+- **只有亚洲大小球线时不要手工折算 O2.5**——四分之一线是 half-win/half-loss，直接去水会系统性偏差。用 `python scripts/tmp/ou_from_asia.py --line 2.75 --over 0.82 --under 0.98 --json`，把输出的 `o25`/`u25` 传给 `--o25`/`--u25`。
+
 **第 6 步 · 验证环境**
 ```bash
 python -m compileall -q scripts/ templates/          # 语法检查
+python -m pytest tests -q                            # 回归测试
 python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1.90 --u25 1.85 --top 5
 # 预期输出: λh/λa + 比分Top5表
 ```

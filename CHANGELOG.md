@@ -65,6 +65,42 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.0.1] — 2026-10-17 · 全链路缺陷修复 / Pipeline Defect Fixes
+
+> 触发：对 `data-2.5.9` 待赛 22 场做端到端分析时暴露 11 项缺陷。改动落在 ②计算层与 ③展示/判定层，
+> **不改模型口径**（方向铁依据 / 命中口径 / 去水算法均不变）。新增 64 项回归测试（总数 115 → 179）。
+
+### 🔧 Fixed · 修复
+
+| 编号 | 缺陷 | 修复 |
+|:--|:--|:--|
+| **P0-1** | `calc_all` 不向 `calc_match` 透传 `--eu/--handi/--o25/--u25/--water` → V5 跨市场分歧与有效凯利恒空（实测 22/22 场） | 组命令时逐项透传 |
+| **P0-2** | `calc_match.trap_classify_output` 只有定义、**零调用点** → C16 诱阻识别永久失效 | 接线 `run_extensions`；实现收敛为委托 `match_classifier`（消除双实现） |
+| **P0-3** | 净胜档候选按体彩让球 L（固定 −1/0/+1）取，**亚盘线从未进解析**（23/23 场两值不一致，平手场被硬抬成主让 1 球） | 亚盘线为唯一依据；输出 `[netmargin-handi]` 双轨对照 |
+| **P0-4** | 无「亚洲四分之一线 → O2.5」折算模块，现场推导易错（首版算错导致 22 场 O2.5 全偏高） | 新增 `scripts/tmp/ou_from_asia.py`（EV 中性拆半注·7 类线型·拒绝未覆盖线型） |
+| **P1-1** | `anchor_market_check` 用未回测经验公式给出「必须采用」的建议锚，与「禁机械照搬」冲突 | 改输出 `constraints` + `violations`；`suggestion` 降级为「约束内候选参考」；经验公式加 `未回测` 标注 |
+| **P1-2** | SKILL 要求伤停缺失必留痕，脚本层无落点（0/23 场） | `calc_all` 恒打伤停三态行 |
+| **P1-3** | `prediction_log` 沿用输入基名 → 同场因空格/下划线产生双份、`--help.json` 落盘 | 规范化为 `YYYY-MM-DD_HHMM_联赛_主队_vs_客队.json` |
+| **P1-4** | SKILL 宣称必传 `--max_h/--max_d/--max_a`，脚本却报「未知参数」→ 修正35 从未被消费 | 改为自动解析输入头「最高价/最低价」行 |
+| **P2-1** | HAF / ELO / xG 三层缺失写法不统一，`calc_all` 侧 HAF 与 xG 完全无声 | 新增 `_layer_state_lines()`：三行恒输出，缺失必写原因 |
+| **P2-2** | HAF 对抗耦合三项平均中 `(基准 − 主队失球)` 可为负 → 强客队被系统性低估（PSG 客场 λ 2.35→1.28） | 改**乘性（泊松对数线性）**耦合 + 守卫（`|Δλ|>0.5` 只标注）；建表拆出使公开版可无 CSV 查表 |
+| **P2-3** | 弱共识门限两处不一致（150% vs 130%）→ 130–150% 区间出两种结论 | `WEAK_SKEW_PCT=150` 单一真源 |
+
+### ✨ Added · 新增
+
+- `scripts/tmp/ou_from_asia.py` —— 亚洲盘四分之一线 → O2.5/U2.5 折算（此前完全缺失）
+- `tests/test_ou_from_asia.py` / `test_calc_all_passthrough.py` / `test_trace_and_anchor.py` /
+  `test_books_skew_haf.py` / `test_three_state_layers.py` / `test_antiregression.py`（共 64 项）
+- CI 之外本地门禁：`python -m pytest tests -q`（README 第 6 步已加入）
+
+### 🔄 Changed · 变更
+
+- `AGENTS.md` 新增硬性纪律第 7–12 条（亚盘线为准 / O2.5 禁手算 / 锚由模型定 / HAF 乘性 / 门限单一真源 / 跨机构自动解析）
+- `SKILL.md` 增补修复表与口径变更点；`calc_all` 参数行删除已废弃的 `--net` 与 `--max_*` 必传要求
+- `calc_homeaway.py` 重构为可导入模块（`haf_couple` / `haf_couple_checked`），建表逻辑移入 `_build_table()`
+
+---
+
 ## 关于版本编号 / Versioning Notes
 
 - **本仓库 = Core Model V3.5.74 的公开快照**（`Public Release v1.0 | Core Model V3.5.74`）
