@@ -274,7 +274,9 @@ Research/engineering use only. Long-term EV is negative. Comply with local laws 
 | **Input required** | Manual plain-text odds file (Chinese lottery format) — no auto-scraping |
 | **Backtest size** | 227k league matches + 1,174 European fixtures |
 | **No guarantee** | Historical backtest results are methodology validation only, not future performance promises |
-| **Known issue** | `check_sync.py` requires the full model's AGENTS.md (not included in public release) |
+| **Known issue** | `check_sync.py` hard-codes `.reasonix/skills/` paths that the public release does not ship; its version regex is `V3\.5\.72` while `VER='V3.5.74'`, so rule ① reports ❌ for every file. AGENTS.md **is** now included — the blocker is the private path, not the rules file |
+| **Offline-first** | Analysis/prediction runs **fully offline** (`net_policy.for_analysis()`, no override); review is offline by default and only goes online on explicit user request. No API key is ever bundled |
+| **Calibration** | `data/tmp/prob_calibration.json` — rebuilt from a 441-match blind test. ⚠️ n=441 (MC RMSE ≈5.3 pp): establishes the *direction* of favourite undervaluation, not a trustworthy magnitude |
 
 ---
 
@@ -519,7 +521,9 @@ PitchQuant/
 | **输入方式** | 手动准备纯文本赔率文件（竞彩格式），不自动抓取 |
 | **回测规模** | 联赛 22.7 万场 + 欧战 1,174 场 |
 | **不保证收益** | 历史回测数字仅验证方法论，不代表未来表现 |
-| **已知问题** | `check_sync.py` 需要完整版模型的 AGENTS.md（公开版不含） |
+| **已知问题** | `check_sync.py` 写死了公开版不提供的 `.reasonix/skills/` 路径；且版本正则为 `V3\.5\.72` 而 `VER='V3.5.74'`，① 号校验对任何文件都报 ❌。**AGENTS.md 现已随仓库提供**——真正的阻塞是私有路径，不是规则文件 |
+| **离线优先** | 分析/预测**全程离线**（`net_policy.for_analysis()`，不可绕过）；复盘默认离线，仅用户明确要求时才联网。仓库不含任何 api key |
+| **校准表** | `data/tmp/prob_calibration.json` —— 由 441 场盲测重建。⚠️ n=441（蒙特卡洛 RMSE ≈5.3pp）：只确立「热门被低估」的*方向*，幅度尚不可信 |
 
 ---
 

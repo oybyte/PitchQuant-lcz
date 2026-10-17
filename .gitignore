@@ -38,3 +38,20 @@ desktop.ini
 prediction_log/
 __pycache__/
 .idea/
+
+# ---- 中间产物 / 盲测数据（体积大·可本地重生成）----
+# 🔴 data/tmp 混放两类文件：
+#    ① 模型资产（必须提交）: prob_calibration.json、*_table.json
+#    ② 跑数中间物（不入库）: 批次目录、抓取缓存、临时 txt
+#    故此处【只忽略批次与缓存】，不整目录忽略，否则会把表一起忽略。
+data/tmp/batch_*/
+data/tmp/analysis_*/
+data/tmp/clubelo_*.json
+data/tmp/xg_*.json
+data/tmp/snapshots/
+data/tmp/*_pinnacle.txt
+data/tmp/_frk_*
+
+# 抓取器缓存（scripts/tmp 下的产物，非脚本本身）
+scripts/tmp/_probe_*.py
+scripts/tmp/std_*.txt
