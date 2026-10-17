@@ -566,7 +566,14 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
     return {'主胜': round(ph*100, 1), '平局': round(pd*100, 1), '客胜': round(pa*100, 1),
             '主方向': main_dir, '置信度': conf, '置信度标签': conf_label, '平局信号': draw_signal, '并列建议': parallel,
             '诱盘信号': trap, '执行提示': hints, '修正方向': fix_dir, '小概率管理': sp_note,
-            '依据': 'odds_table档位校准+修正53分组分%.1f+伤停影响分H%d/A%d' % (draw_group_score, inj_score_h, inj_score_a)}
+            # 🔴2026-10-17 修复(第二轮复跑发现): 原「依据」恒写『odds_table档位校准』，
+            #   但本函数内**没有** odds_table 查表逻辑（全文件唯一出现处就是这行字符串）。
+            #   odds_table.json 仅覆盖五大联赛 35 档，且不在本函数调用链上。
+            #   实测: 日职乙场次也照样声称『odds_table档位校准』→ 虚假溯源。
+            #   现如实声明实际用到的三项，并写明概率校准是否生效。
+            '依据': '等比例去水%s+修正53分组分%.1f+伤停影响分H%d/A%d（🔴未查 odds_table 档位表）' % (
+                ('+prob_calibration分档校准' if _calib_note is None else '[🔴校准未生效]'),
+                draw_group_score, inj_score_h, inj_score_a)}
 
 if __name__ == "__main__":
     main()

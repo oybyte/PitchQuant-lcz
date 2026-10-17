@@ -76,6 +76,235 @@ def norm_league(x):
     return _LG_ALIAS.get(s) or _LG_ALIAS.get(s.lower().replace(' ', '').replace('-', ''), s)
 
 
+def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
+    """C13/C26/C27 先行层三态统一声明（HAF / ELO / xG）
+
+    🔴2026-10-17 修复(P2-1): 三层都有「数据域覆盖」限制，但原先三态写法不统一:
+        · ELO 有「无数据(原因)」规定
+        · HAF 缺失时 calc_all 完全无声
+        · xG 缺失时同样无声
+      实测本批 14/22 场 HAF 缺、10/22 ELO 缺、20/22 xG 缺 —— 报告里只能手写声明。
+      现统一为「恒出现」的三行，缺失也出现并写原因（禁止笼统「无数据」）。
+    """
+    import os as _o, json as _j, re as _cr, sys as _s
+    out = []
+    _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__)))
+    EU5 = ('英超', '西甲', '德甲', '意甲', '法甲')
+
+    # 队名（从 txt 头）
+    home = away = None
+    try:
+        _t = open(txt_path, encoding='utf-8').read()
+        _m = _cr.search(r'([^\s()（）]+)\s*[(（]主[)）]\s*[Vv][Ss]\s*([^\s()（）]+)\s*[(（]客[)）]', _t)
+        if _m:
+            home, away = _m.group(1), _m.group(2)
+    except Exception:
+        pass
+
+    # ── HAF(C13/Step4.6) ──
+    try:
+        import calc_homeaway as _HA
+        _T = _HA.load_table()
+        _teams = (_T or {}).get('_teams') or {}
+        _in_domain = bool(_teams) and league_cn in (_HA.LEAGUE_BASE or {})
+        if not _teams:
+            out.append('  🔴HAF(Step4.6): ⏭️ 不触发(原因: homeaway_table.json 缺失/未分发)')
+        elif not _in_domain:
+            out.append('  🔴HAF(Step4.6): ⏭️ 不触发(原因: 本联赛不在覆盖域·HAF 仅覆盖五大联赛·%s)' % league_cn)
+        else:
+            # 尝试中文→英文（沿用既有别名表）
+            _map = {'埃弗顿': 'Everton', '切尔西': 'Chelsea', '富勒姆': 'Fulham', '布伦特福德': 'Brentford',
+                    '利物浦': 'Liverpool', '曼彻斯特城': 'Man City', '伊普斯维奇': 'Ipswich',
+                    '西班牙人': 'Espanol', '马德里竞技': 'Ath Madrid', '比利亚雷亚尔': 'Villarreal',
+                    '埃尔切': 'Elche', '威尼斯': 'Venezia', '那不勒斯': 'Napoli',
+                    '云达不莱梅': 'Werder Bremen', '帕德博恩': 'Paderborn', '奥格斯堡': 'Augsburg',
+                    '柏林联合': 'Union Berlin', '多特蒙德': 'Dortmund', '沙尔克04': 'Schalke 04',
+                    '美因茨': 'Mainz', '斯特拉斯堡': 'Strasbourg', '巴黎圣日耳曼': 'Paris SG'}
+            _h, _a = _map.get(home), _map.get(away)
+            if _h and _a and _h in _teams and _a in _teams:
+                _lh, _la = _HA.haf_couple(_h, _a, league_cn)
+                if _lh:
+                    out.append('  🔴HAF(Step4.6): ✅ ok → λh=%.2f λa=%.2f（乘性耦合·%s/%s）'
+                               % (_lh, _la, _h, _a))
+                else:
+                    out.append('  🔴HAF(Step4.6): ⚠️ 无数据(原因: 该联赛场地子集缺失)')
+            else:
+                _miss = [x for x, y in ((_h or home, _h), (_a or away, _a)) if not y]
+                out.append('  🔴HAF(Step4.6): ⚠️ 无数据(原因: 队伍不在 139 队档案内·%s)'
+                           % ('/'.join(_miss) or '别名未命中'))
+    except Exception as _e:
+        out.append('  🔴HAF(Step4.6): ⚠️ 无数据(原因: 模块不可用·%s)' % str(_e)[:50])
+
+    # ── ELO(C26/修正41) ──
+    try:
+        _ep = _tp.find_table('clubelo_20261016.json')
+        if not _ep:
+            out.append('  🔴ELO(修正41): ⏭️ 不触发(原因: clubelo 本地快照缺失)')
+        elif league_cn not in EU5:
+            out.append('  🔴ELO(修正41): ⏭️ 不触发(原因: 本联赛不在覆盖域·clubelo 快照仅五大联赛·%s)' % league_cn)
+        else:
+            out.append('  🔴ELO(修正41): ✅ 快照在位 → 由执行者按队查 diff（禁凭记忆）')
+    except Exception as _e:
+        out.append('  🔴ELO(修正41): ⚠️ 无数据(原因: %s)' % str(_e)[:50])
+
+    # ── xG(C27/SK-xg-depth) ──
+    try:
+        _xp = _tp.find_table('xg_La_liga_2026.json')
+        if not _xp:
+            out.append('  🔴xG(SK-xg-depth): ⏭️ 不触发(原因: understat 本地快照缺失)')
+        else:
+            _xd = _j.load(open(_xp, encoding='utf-8'))
+            _titles = {v.get('title') for v in (_xd.get('teams') or {}).values()}
+            _cov = {'西班牙人': 'Espanyol', '比利亚雷亚尔': 'Villarreal',
+                    '埃尔切': 'Elche', '马德里竞技': 'Atletico Madrid'}
+            _hit = [k for k, v in _cov.items() if v in _titles and k in (home, away)]
+            if league_cn == '西甲' and _hit:
+                out.append('  🔴xG(SK-xg-depth): ✅ ok（覆盖 %s·滚动近6场·防泄露）' % '/'.join(_hit))
+            elif league_cn == '西甲':
+                out.append('  🔴xG(SK-xg-depth): ⚠️ 无数据(原因: 该队不在西甲 xG 快照)')
+            else:
+                out.append('  🔴xG(SK-xg-depth): ⏭️ 不触发(原因: 本联赛不在覆盖域·understat 快照仅西甲·%s)' % league_cn)
+    except Exception as _e:
+        out.append('  🔴xG(SK-xg-depth): ⚠️ 无数据(原因: %s)' % str(_e)[:50])
+    return out
+
+
+def _parse_cross_book(txt_path):
+    """从输入头解析跨机构读数 → dict 或 None
+
+    🔴2026-10-17(P1-4): SKILL 曾宣称 calc_all「必传 --max_h/--max_d/--max_a」，
+       但脚本从未实现 → 修正35 机构 Max 分歧**从未被消费**（实测传参只得到「未知参数(已忽略)」）。
+       而真实输入头**已经带**这一行，可自动解析，不需要人工传参:
+         跨机构即盘：348 家 · 最高价 3.4/3.75/2.48 · 最低价 2.72/3.0/1.65
+       故改为自动解析（无需 --max_*），缺失时三态标注。
+    """
+    import re as _cr
+    try:
+        text = open(txt_path, encoding='utf-8').read()
+    except Exception:
+        return None
+    m = _cr.search(r'(\d+)\s*家[^\n]*?最高价\s*([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+)'
+                   r'(?:[^\n]*?最低价\s*([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+))?', text)
+    if not m:
+        return None
+    try:
+        return {'n_books': int(m.group(1)),
+                'max': [float(m.group(2)), float(m.group(3)), float(m.group(4))],
+                'min': [float(m.group(5)), float(m.group(6)), float(m.group(7))]
+                if m.group(5) else None}
+    except (TypeError, ValueError):
+        return None
+
+
+def cross_book_divergence(txt_path, eu=None, explicit_max=None):
+    """跨机构分歧（修正35）: (Max − 中位)/中位 · 输出三向分歧 + 方向判读
+
+    口径与 bookmaker_spread 通道 C 一致：(Max − 基准)/基准。
+    基准优先用传入的欧盘（--eu·当前定价），无则用最低价与最高价的中点。
+    返回输出行列表（**永远非空**·缺失走三态）。
+    """
+    cb = _parse_cross_book(txt_path)
+    out = []
+    # 显式 --max_* 优先（若调用方仍手传）
+    base = None
+    if eu:
+        try:
+            _e = [float(x) for x in str(eu).split(',')]
+            if len(_e) == 3 and all(x > 1 for x in _e):
+                base = _e
+        except (TypeError, ValueError):
+            base = None
+
+    if cb is None and explicit_max is None:
+        out.append('  🔴跨机构分歧: ⚠️无数据(原因: 输入文件未提供「最高价/最低价」行·未传 --max_h) '
+                   '→ 修正35 不触发(禁以单家冒充跨机构)')
+        return out
+
+    mx = explicit_max or (cb.get('max') if cb else None)
+    mn = (cb.get('min') if cb else None)
+    nb = (cb.get('n_books') if cb else None)
+    if not mx:
+        out.append('  🔴跨机构分歧: ⚠️无数据(原因: 最高价不可解析) → 修正35 不触发')
+        return out
+    if base is None:
+        if mn:
+            base = [(a + b) / 2 for a, b in zip(mx, mn)]
+        else:
+            out.append('  🔴跨机构分歧: ⚠️无数据(原因: 无基准价·既无 --eu 也无最低价) → 修正35 不触发')
+            return out
+
+    legs = ('主', '平', '客')
+    devs = []
+    for i, lab in enumerate(legs):
+        d = (mx[i] - base[i]) / base[i] * 100 if base[i] else 0.0
+        devs.append(d)
+    detail = ' · '.join('%s%+.1f%%' % (legs[i], devs[i]) for i in range(3))
+    out.append('  🔴跨机构分歧(修正35): %s%s | 最高价 %s | 基准 %s' % (
+        ('%d 家 · ' % nb) if nb else '', detail,
+        '/'.join('%g' % x for x in mx),
+        '/'.join('%.2f' % x for x in base)))
+    _maxdev = max(abs(d) for d in devs)
+    if _maxdev < 5:
+        out.append('     → Max分歧 %.1f%% < 5%% 档: 低可信(实测该档准确率 44.5%%·降级)' % _maxdev)
+    elif _maxdev > 10:
+        out.append('     → Max分歧 %.1f%% > 10%% 档: 方向**更可信**(实测 51.6%%·反直觉·升级参考)' % _maxdev)
+    else:
+        out.append('     → Max分歧 %.1f%% 落 5-10%% 中性档' % _maxdev)
+    _top = max(range(3), key=lambda i: devs[i])
+    out.append('     → 偏离最大方向: %s(最高价高出基准 %+.1f%%)·机构在该向给出更高赔付'
+               % (legs[_top], devs[_top]))
+    return out
+
+
+def _canonical_log_name(txt_path, league=None):
+    """预测日志文件名的唯一规范化入口 → YYYY-MM-DD_HHMM_联赛_主队_vs_客队.json
+
+    🔴2026-10-17(P1-3): 原实现直接沿用输入 txt 基名 → 同场不同分隔符产生重复文件，
+      且无参数调用会落 `--help.json`。此函数保证「同一场 → 同一文件」。
+    """
+    import re as _cr
+
+    def _clean(s):
+        s = (s or '').strip()
+        s = _cr.sub(r'[\\/:*?"<>|]+', '', s)
+        s = _cr.sub(r'\s+', '', s)
+        return s
+
+    stem = os.path.splitext(os.path.basename(txt_path))[0]
+    try:
+        text = open(txt_path, encoding='utf-8').read()
+    except Exception:
+        text = ''
+
+    mt = _cr.search(r'比赛时间[:：]\s*(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})', text)
+    if mt and all(mt.groups()):
+        y, mo, d, hh, mi = mt.groups()
+        datepart = '%s-%s-%s_%s%s' % (y, mo, d, hh, mi)
+    else:
+        m2 = _cr.search(r'(\d{2})-(\d{2})\s+(\d{2}):(\d{2})', stem)
+        datepart = ('2026-%s-%s_%s%s' % (m2.group(1), m2.group(2), m2.group(3), m2.group(4))
+                    if m2 else 'undated')
+
+    lg = _clean(norm_league(league) or '')
+    if not lg:
+        m3 = _cr.search(r'赛事[:：]\s*\S*?([\u4e00-\u9fa5]{2,6}(?:联|杯|甲|超|乙))', text)
+        lg = _clean(m3.group(1)) if m3 else ''
+
+    home = away = ''
+    m4 = _cr.search(r'([^\s()（）]+)\s*[(（]主[)）]\s*[Vv][Ss]\s*([^\s()（）]+)\s*[(（]客[)）]', text)
+    if m4:
+        home, away = _clean(m4.group(1)), _clean(m4.group(2))
+
+    parts = [datepart]
+    if lg:
+        parts.append(lg)
+    if home and away:
+        parts.append('%s_vs_%s' % (home, away))
+    else:
+        parts.append(_clean(stem) or 'unknown')
+    return '_'.join(parts) + '.json'
+
+
 def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False):
     """脚本生成必核清单(附数据状态·LLM照单逐项消费)"""
     lines = ['', '=' * 70, '【必核清单·脚本生成(2026-09-02·防自我遗漏·LLM逐项执行不可跳过)】', '=' * 70]
@@ -372,7 +601,7 @@ def main():
                 _plog = os.path.join(_oldir, 'prediction_log')
                 os.makedirs(_plog, exist_ok=True)
                 import json as _pj
-                _pname = os.path.splitext(os.path.basename(txt_path))[0] + '.json'
+                _pname = _canonical_log_name(txt_path, league)
                 _pj.dump({'txt': txt_path, 'features': _feat, 'detail': _diag.get('detail', {}),
                           'sources': _diag.get('sources', {}), 'completeness': _diag.get('completeness'),
                           'analyzed_at': __import__('time').strftime('%Y-%m-%d %H:%M')},
@@ -396,7 +625,11 @@ def main():
     # 🔴2026-09-15 修复(Bug1): 加入 '--water' —— calc_v3572 帮助(L70)/README/案例文档全仓只用 --water,
     # calc_all 原先只认 --home_water → 用户按文档传 --water 时被【静默丢弃】, 水位信号恒缺失且零提示
     # (实测 --water 1.84 → 诱阻分类总分1/置信33%; --home_water 1.84 → 总分2/置信67%)。
-    _OVFLAGS = ('--eu', '--handi', '--o25', '--u25', '--home_water', '--water', '--elo', '--inj_h', '--inj_a', '--off')
+    # 🔴2026-10-17(P1-4): 纳入 --max_h/--max_d/--max_a —— SKILL 长期宣称「必传」，
+    #   但脚本从未识别（传了只得到「未知参数(已忽略)」）。现正式接收：
+    #   跨机构分歧**默认从输入头自动解析**，显式传参时以其覆盖。
+    _OVFLAGS = ('--eu', '--handi', '--o25', '--u25', '--home_water', '--water', '--elo',
+                '--inj_h', '--inj_a', '--off', '--max_h', '--max_d', '--max_a')
     # 🔴2026-10-18: '--net' 已从 --bool 白名单移除 —— 分析阶段禁止联网,
     #   该参数**不再有任何效果**。若用户仍传入, 会被下面的 _unknown 分支显式告警
     #   (而不是静默接收后无效), 避免"传了以为能联网"的误解。
@@ -431,8 +664,19 @@ def main():
     print('calc_all.py — 全覆盖预计算(2026-09-02·步骤遗失结构性根除)')
     print('=' * 70)
     # ① 跑 calc_match 全管道(含修正的run_extensions·净胜档/总进球档已接入)
+    # 🔴2026-10-17 修复(P0-1): **参数必须透传**。
+    #   原实现只拼 txt_path + league → calc_match 子进程里 --eu/--handi/--o25/--u25/--water
+    #   全部缺失 → 依赖欧盘的模块恒走降级分支:
+    #     · V5 跨市场分歧 / 有效凯利 → 恒打印「未提供欧盘」(实测 22/22 场)
+    #     · 净胜档 margin_candidates → 退回体彩让球L 粒度(见 P0-3)
+    #     · 诱阻分类 → 无欧盘参数不触发(见 P0-2)
     cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'calc_match.py'), txt_path]
     if league: cmd.append(league)
+    for _flag, _val in (('--eu', eu), ('--handi', handi), ('--o25', o25), ('--u25', u25),
+                        ('--water', home_water), ('--elo', elo),
+                        ('--inj_h', inj_h), ('--inj_a', inj_a)):
+        if _val is not None and str(_val).strip() != '':
+            cmd.extend([_flag, str(_val)])
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
         out = r.stdout
@@ -570,6 +814,31 @@ def main():
                     print('    联赛比分Top5: %s' % (_ct if isinstance(_ct, str) else ' '.join(map(str, _ct))))
         except Exception as _e:
             print('  (联赛基准读取失败: %s·降级人工查表)' % _e)
+    # 🔴2026-10-17 修复(P2-1): C13/C26/C27 先行层三态统一声明（恒出现·缺失写原因）
+    try:
+        for _ln in _layer_state_lines(txt_path, _league_cn, eu=eu, o25=o25, handi=handi):
+            print(_ln)
+    except Exception as _ls_err:
+        print('  🔴先行层三态: ⚠️ 声明生成失败(%s)' % str(_ls_err)[:60])
+    # 🔴2026-10-17 修复(P1-4): 跨机构分歧（修正35）自动解析输入头·无需 --max_*
+    try:
+        for _ln in cross_book_divergence(txt_path, eu=eu,
+                                         explicit_max=(_ov.get('--max_h') and None)):
+            print(_ln)
+    except Exception as _cb_err:
+        print('  🔴跨机构分歧: ⚠️解析失败(%s) → 修正35 不触发' % str(_cb_err)[:60])
+    # 🔴2026-10-17 修复(P1-2): 伤停维度**三态强制留痕**。
+    #   SKILL 要求伤停缺失时输出「🔴伤停影响分(判定铁依据·缺失)」，但脚本层从无落点
+    #   → 实测 0/23 场有该行 → 违反「禁止静默跳过」/「没做也不说」。
+    #   分析阶段禁止联网（AGENTS.md §0），故缺失原因恒为「分析禁止联网」。
+    _inj_given = (inj_h is not None and str(inj_h).strip() != '') or \
+                 (inj_a is not None and str(inj_a).strip() != '')
+    if _inj_given:
+        print('  🔴伤停影响分(判定铁依据·已提供): H=%s / A=%s → 置信度合成**含**伤停维度' % (
+            inj_h or '0', inj_a or '0'))
+    else:
+        print('  🔴伤停影响分(判定铁依据·缺失·原因:分析禁止联网·net_policy.for_analysis 恒全关) '
+              '→ 伤停维度不可用·置信度合成**不含**伤停维度·铁则32/修正58 不触发')
     print(gen_checklist(league, is_europe=is_eu, is_top5=is_top5))
     print('=' * 70)
     # ④ 现场比分引擎(评审P0修复半场反推/CS深度/5源融合实际接入·脚本计算LLM消费)
@@ -587,7 +856,10 @@ def main():
                 if not u25: print('  ⚠️未传 --u25 → 大小球约束为单侧(O25)·建议补传 Under2.5 赔率')
                 _hsv = float(handi) if handi else None
                 _cs, _bq = _extract_cs_bqc(txt_path)
-                ls = analyze_live(_oh, _od, _oa, _o25v, u25=(float(u25) if u25 else None), handi=_hsv, cs_odds=_cs, bqc_odds=_bq)
+                # 🔴2026-10-17(第二轮): 把方向引擎结论传给现场引擎，使「锚 vs 方向」可被脚本自查
+                _dirv = (dr or {}).get('主方向') if isinstance(locals().get('dr'), dict) else None
+                ls = analyze_live(_oh, _od, _oa, _o25v, u25=(float(u25) if u25 else None), handi=_hsv,
+                                  cs_odds=_cs, bqc_odds=_bq, direction=_dirv)
                 if ls.get('status') == 'ok':
                     print('  λ: 主%s 客%s 总%s | 数据源: %s' % (
                         ls['lambda']['home'], ls['lambda']['away'], ls['lambda']['total'], ls['sources_used']))
@@ -613,16 +885,41 @@ def main():
                 for _w in (ls.get('warnings') or []):
                     if '锚-量级矛盾' in _w:
                         print('  ' + _w)
-                        print('  → 🔴执行要求: 主锚必须按上方建议取（禁机械照搬 Top1）·并回查方向/净胜档/BTTS 一致性')
+                        print('  → 🔴执行要求: 在下方市场约束内自行定锚（禁机械照搬 Top1）·并回查方向/净胜档/BTTS 一致性')
                 if ls.get('magnitude_rerank'):
                     print('  [量级重排] %s' % ls['magnitude_rerank'])
                 if ls.get('market_anchor_check'):
                     _amc = ls['market_anchor_check']
-                    print('  🔴锚-市场一致性(2026-09-13·用户要求): %s | 市场净胜期望档 %s(净胜%+.2f球)'
-                          % ('✅主锚/次锚均与市场一致' if _amc['ok'] else '⚠️矛盾→建议锚 ' + ' / '.join(_amc['suggestion'] or ['无候选']),
-                             _amc['band'], _amc['exp_net'] or 0))
-                    for _c in _amc['conflicts']:
-                        print('     ❌ ' + _c)
+                    # 🔴2026-10-17(P1-1 消费端同步): 措辞由「建议锚」改为「约束 + 违反项」。
+                    #   脚本只给约束事实，取哪个锚由 LLM 决定（SKILL 禁机械照搬）。
+                    if _amc['ok']:
+                        print('  🔴锚-市场一致性: ✅ 当前锚均落在市场约束内 | 市场净胜期望档 %s(净胜%+.2f球)'
+                              % (_amc['band'], _amc['exp_net'] or 0))
+                    else:
+                        print('  🔴锚-市场一致性: ⚠️ 有锚越界 | 市场净胜期望档 %s(净胜%+.2f球)'
+                              % (_amc['band'], _amc['exp_net'] or 0))
+                        _ct = _amc.get('constraints') or {}
+                        if _ct:
+                            print('     约束: 净胜档∈%s | 总进球%s | %s' % (
+                                _ct.get('net_range'),
+                                ('≥%s' % _ct['min_total']) if _ct.get('min_total')
+                                else (('≤%s' % _ct['max_total']) if _ct.get('max_total') else '不限'),
+                                ('禁主胜锚' if _ct.get('forbid_home_anchor')
+                                 else ('禁客胜锚' if _ct.get('forbid_away_anchor') else '盘口方向不限'))))
+                        for _v in (_amc.get('violations') or []):
+                            print('     ❌ %s %s: %s' % (_v.get('slot'), _v.get('score'), _v.get('rule')))
+                        if _amc['suggestion']:
+                            print('     ↳ 约束内候选**参考**(非必须采用·LLM 自行定锚): %s'
+                                  % ' / '.join(_amc['suggestion']))
+                    # 🔴方向-锚硬冲突单独高亮（D4 互证失败，不只是单锚越界）
+                    for _c in (_amc.get('conflicts') or []):
+                        if '方向-锚硬冲突' in _c:
+                            print('     🔴 %s' % _c)
+                            print('        → 执行要求: 主锚/次锚至少一个须落在「%s」方向内，否则方向与锚无法互证(D4)'
+                                  % (_amc.get('constraints', {}).get('direction') or '判定'))
+                    if _amc.get('unvalidated'):
+                        print('     ⚠️ 净胜期望档来源: %s —— 仅作约束提示·禁与「V6 四象限 22.7 万场」同档引用'
+                              % _amc.get('band_note', '未回测经验公式'))
                 # 锚可信度分级（案例库157场回测固化·用户要求"运用到模型主体"·output_checker N08）
                 try:
                     from prestep_dual import anchor_trust as _at

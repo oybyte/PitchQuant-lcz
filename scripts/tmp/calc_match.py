@@ -117,6 +117,15 @@ def parse_txt(text):
         sections['bf'] = sorted([(ts, o) for ts, o in by_ts.items()])
     return sections
 
+# 🔴2026-10-17 修复(P2-3): 弱共识门限**单一真源**。
+#   历史上两处写法不一致: calc_match 用 skew<150%，学习成果提示写 skew<130%
+#   → 130–150% 区间同场可能「须平局并列」却「不必三向覆盖」，换人执行出两种结论。
+#   保留 150%：有 441 场盲测支撑（市场首选仅 36.4–43.0%≈随机）。
+#   任何新增规则引用本常量，禁再硬编码 130/150。
+WEAK_SKEW_PCT = 150.0
+STRONG_SKEW_PCT = 200.0
+
+
 def dejuice(odds):
     """去抽水：返回 (抽水率, 隐含概率dict)"""
     inv = {k: 1/v for k, v in odds.items()}
@@ -144,6 +153,31 @@ def main():
             eu_odds = sys.argv[sys.argv.index('--eu') + 1]
         except IndexError:
             pass
+    # 🔴2026-10-17(P0-3/P0-2): --handi(亚盘线·净胜档唯一依据) 与 --water(水位)
+    # 也需在 main 早期取到，供 run_extensions 的净胜档/诱阻分类消费。
+    # 原实现只有 calc_all 在自身上下文里用这两个值 → calc_match 子进程里恒为 None。
+    def _argval(flag):
+        if flag not in sys.argv:
+            return None
+        i = sys.argv.index(flag)
+        if i + 1 >= len(sys.argv) or sys.argv[i + 1].startswith('--'):
+            return None
+        return sys.argv[i + 1]
+
+    asia_handi = None
+    _hv = _argval('--handi')
+    if _hv is not None:
+        try:
+            asia_handi = float(_hv)
+        except ValueError:
+            asia_handi = None
+    water_arg = None
+    _wv = _argval('--water') or _argval('--home_water')
+    if _wv is not None:
+        try:
+            water_arg = float(_wv)
+        except ValueError:
+            water_arg = None
     print("=" * 70)
     print("calc_match.py — V3.5.58 计算脚本（确定性计算·模型只判断）")
     print("=" * 70)
@@ -152,8 +186,24 @@ def main():
     if 'spf' in secs and secs['spf']:
         ts, odds = secs['spf'][-1]
         vig, prob = dejuice(odds)
-        print(f"\n【胜平负】末盘({ts}): {odds}")
-        print(f"  去抽水率: {vig*100:.2f}% → 隐含: 主{prob.get('胜',0)*100:.1f}%/平{prob.get('平',0)*100:.1f}%/客{prob.get('负',0)*100:.1f}%")
+        # 🔴2026-10-17 修复(第二轮复跑发现·P0): 去水/隐含那一行**必须跟随 --eu**。
+        #   原实现恒用竞彩 txt（澳门），传 --eu 时也只打印竞彩口径；
+        #   而下方 skew 已按 --eu 取数 → 同一段里「隐含」与「skew」来自两个不同源。
+        #   实测布伦特福德 vs 利物浦：澳门基线显示 41.1/23.5/35.4(抽水11.58%)、
+        #   Pinnacle 基线也逐字显示 41.1/23.5/35.4，但 skew 却是 39.1/34.4。
+        _dv_odds, _dv_src = odds, '竞彩txt'
+        if eu_odds:
+            try:
+                _eo_dv = [float(x) for x in eu_odds.split(',')]
+                if len(_eo_dv) == 3 and all(o > 1 for o in _eo_dv):
+                    _dv_odds = {'胜': _eo_dv[0], '平': _eo_dv[1], '负': _eo_dv[2]}
+                    _dv_src = '欧盘--eu'
+            except Exception:
+                pass
+        vig, prob = dejuice(_dv_odds)
+        print(f"\n【胜平负】末盘({ts}): {odds}"
+              + (f" | 去水口径={_dv_src}" if _dv_src != '竞彩txt' else ""))
+        print(f"  去抽水率: {vig*100:.2f}% → 隐含: 主{prob.get('胜',0)*100:.1f}%/平{prob.get('平',0)*100:.1f}%/客{prob.get('负',0)*100:.1f}%  (源:{_dv_src})")
         # 评审固化·P0-1: 校准后概率（prob_calibration.json·热门低估偏差·禁仅等比例去水）
         try:
             # 2026-09-15 修复(P1): 表真源在 data/tmp/(SKILL.md L18 自述「按 data/tmp/prob_calibration.json 校准」),
@@ -195,18 +245,20 @@ def main():
             # 「skew<150」判假 → 弱共识并列铁律失效(该铁律是保护性的·禁单押)。
             # 容差方向: 边界值(±1e-6 内)一律归【保护侧】—— <150 归弱共识, ≥200 归强共识。
             skew = probs_sorted[0] / probs_sorted[1] * 100
-            _weak = skew <= 150 + 1e-6
-            _strong = skew >= 200 - 1e-6
+            _weak = skew <= WEAK_SKEW_PCT + 1e-6
+            _strong = skew >= STRONG_SKEW_PCT - 1e-6
             sklvl = ('无共识(<100%)' if skew <= 100 + 1e-6 else
-                     '温和共识(100-150%)' if _weak else
-                     '高共识(150-200%)' if not _strong else '极端(≥200%)')
+                     '温和共识(100-%g%%)' % WEAK_SKEW_PCT if _weak else
+                     '高共识(%g-%g%%)' % (WEAK_SKEW_PCT, STRONG_SKEW_PCT) if not _strong
+                     else '极端(≥%g%%)' % STRONG_SKEW_PCT)
             print(f"  🔴skew精确计算: {probs_sorted[0]*100:.1f}/{probs_sorted[1]*100:.1f} = {skew:.0f}% → {sklvl} (来源:{_sk_src}·修正32判定依据·禁手算)")
             # 弱共识场平局并列铁律（22.7万场回测: skew<150%→市场首选仅36.4-43.0%≈随机）
             if _weak:
-                print(f"  🔴🔴弱共识场(skew={skew:.1f}%<150%) → 市场首选方向命中率仅 36.4-43.0%(≈随机) → "
-                      f"**平局必须与市场首选并列（禁单押市场首选）**·置信度按原档降1档")
+                print(f"  🔴🔴弱共识场(skew={skew:.1f}%<{WEAK_SKEW_PCT:g}%) → 市场首选方向命中率仅 36.4-43.0%(≈随机) → "
+                      f"**平局必须与市场首选并列（禁单押市场首选）**·置信度按原档降1档"
+                      f"·🔴弱共识(门限 {WEAK_SKEW_PCT:g}%·单一真源 WEAK_SKEW_PCT)须三向覆盖")
             elif _strong:
-                print(f"  ✅强共识场(skew={skew:.1f}%≥200%) → 市场首选命中 64.6% → 可单押")
+                print(f"  ✅强共识场(skew={skew:.1f}%≥{STRONG_SKEW_PCT:g}%) → 市场首选命中 64.6% → 可单押")
         # 凯利
         k = kelly(odds, prob)
         print(f"  凯利指数(单源·恒<1·仅相对排序): " + " ".join(f"{kk}={vv:.3f}" for kk, vv in k.items()) + " 🔴单源凯利=1/Σ(1/o) 恒<1 无价值判断·有效凯利需跨市场(竞彩赔率×欧盘概率)")
@@ -334,7 +386,7 @@ def main():
     # 扩展模块（防手算: D1背离/修正53预计算/V5跨市场·--eu 参数）
     # 🔴2026-09-15: --eu 解析已上移至 main() 开头(胜平负段 skew 来源需先知道 --eu)
     feat = parse_features(text)
-    print(run_extensions(secs, feat, eu_odds))
+    print(run_extensions(secs, feat, eu_odds, handi=asia_handi, water=water_arg))
 
     print("\n" + "=" * 70)
     print("提示: 模型消费以上结果做【判断】——资金流方向/诱阻识别/信号聚合/主锚次锚·计算不占推理")
@@ -438,34 +490,55 @@ def x53_predict(sections, feat):
 
 
 
-def margin_candidates_pool(sections):
+def margin_candidates_pool(sections, asia_handi=None):
     """净胜档多档候选(2026-08-29优化·margin_candidates执行入口): 亚盘盘口->净胜档主+相邻档->各档查表合并候选池
-    替代泊松Top1单档(2万场: 21.1% vs 47.4% +26.3pp)"""
+    替代泊松Top1单档(2万场: 21.1% vs 47.4% +26.3pp)
+
+    🔴2026-10-17 修复(P0-3): 亚盘线 / 体彩让球L **双轨分离**
+      · 亚盘线(asias_handi·走 --handi) = 净胜档的**唯一依据**（可 平手/受让0.25/让0.75·连续）
+      · 体彩L(_rq_handicap·标题让球) = 仅用于让球盘去水·**固定 −1/0/+1 粒度**
+      历史缺陷: 原实现拿 _rq_handicap 当唯一依据 → 平手场被硬抬成「主让1球」
+                （实测 23/23 场两值不一致·宫崎/埃弗斯堡/布伦特福德均受影响）。
+    """
     import sys as _s, os as _o, re as _re
     _s.path.insert(0, _o.path.dirname(_o.path.abspath(__file__)))
     from calc_v3572 import margin_candidates, score_depth_lookup
     out = []
-    if 'rq' not in sections or not sections['rq']:
-        return "  [netmargin] 无亚盘数据->[0]平局档保守"
-    seq = sections['rq']
-    last = seq[-1][1] if isinstance(seq[-1], tuple) else seq[-1]
-    # 审计修复(客让场方向缺陷·/130/131三现): 优先用标题让球数(符号=主队视角: -1主让1/+1客让1)
-    # 原逻辑从让球盘赔率取数恒取负(abs·当主让)→客让场必输出主胜候选(如皇马客让场出4:0/5:0)·已废弃
-    hs = sections.get('_rq_handicap')
-    if hs is None:  # 无标题让球数(非标txt)·降级旧逻辑但修正: 取让球盘行数字仅当无'+/-'标题时
-        hs = None
+    lottery_h = sections.get('_rq_handicap')
+    _lot_str = ('%+g' % lottery_h) if lottery_h is not None else '—'
+
+    # ① 亚盘线优先（唯一依据）
+    hs, src = None, None
+    if asia_handi is not None:
+        try:
+            hs, src = float(asia_handi), '亚盘线(--handi)'
+        except (TypeError, ValueError):
+            hs = None
+    # ② 无亚盘线 → 退回体彩L（降级·必须留痕）
+    if hs is None and lottery_h is not None:
+        hs, src = float(lottery_h), '体彩让球L(降级·非亚盘)'
+    # ③ 两者皆无 → 让球盘行弱启发
+    if hs is None and 'rq' in sections and sections['rq']:
+        seq = sections['rq']
+        last = seq[-1][1] if isinstance(seq[-1], tuple) else seq[-1]
         vals = last.values() if isinstance(last, dict) else [str(last)]
         for v in vals:
             m = _re.search(r'[-+]?[0-9]+\.?[0-9]*', str(v))
             if m:
                 try:
                     n = float(m.group(0))
-                    hs = -n if n >= 1 else n  # 让球盘赔率≥1→弱启发(方向未知·保守主让负)
+                    hs, src = (-n if n >= 1 else n), '让球盘赔率弱启发(方向未知)'
                 except Exception:
                     pass
                 break
     if hs is None:
         return "  [netmargin] 亚盘盘口未识别->[0]"
+
+    # 🔴双轨对照留痕（不一致必须显式标出·禁静默）
+    _consistent = (lottery_h is not None and abs(hs - float(lottery_h)) < 1e-9)
+    out.append("  [netmargin-handi] 亚盘线 %+g / 体彩让球L %s / 一致: %s（净胜档依据=%s）" % (
+        hs, _lot_str, '是' if _consistent else '否 🔴', src))
+
     cands = margin_candidates(hs)
     ov = 1.9
     pool = []
@@ -475,7 +548,9 @@ def margin_candidates_pool(sections):
             pool.append(lk['anchor'])
             if lk.get('second'): pool.append(lk['second'])
     uniq = list(dict.fromkeys(pool))
-    out.append("  [netmargin] 亚盘" + str(hs) + " 档位" + str(cands) + " 候选池 " + '/'.join(uniq))
+    # 档位列表受亚盘线驱动·保留旧格式（下游 check_luopan/output_checker 依赖）并补来源
+    out.append("  [netmargin] 亚盘" + str(hs) + " 档位" + str(cands) + " 候选池 " + '/'.join(uniq)
+               + " （依据=" + (src or '?') + "）")
     return chr(10).join(out)
 
 
@@ -564,8 +639,13 @@ def v5_divergence(jc_prob, eu_odds):
         return f'  V5跨市场: 解析失败({e})'
 
 
-def run_extensions(sections, feat, eu_odds=None):
-    """运行全部扩展模块（D1背离+修正53+V5）·防手算"""
+def run_extensions(sections, feat, eu_odds=None, handi=None, water=None):
+    """运行全部扩展模块（D1背离+修正53+V5+净胜档+进球档+诱阻分类）·防手算
+
+    🔴2026-10-17 修复(P0-2): trap_classify_output 原为**孤儿函数**（只有 def·零调用点）
+      → calc_all 打印「诱阻分类预计算」标题后恒为空行 · C16 必核项脚本侧永久失效。
+      现接线：欧盘三向齐备时调用（缺则三态标注·禁静默留空）。
+    """
     out = []
     out.append('')
     out.append('【扩展·防手算（2026-08-24结构性机制）】')
@@ -579,10 +659,20 @@ def run_extensions(sections, feat, eu_odds=None):
     # 结构性根除: 接入孤儿函数(防步骤遗失·曾main未调用)
     out.append('')
     out.append('🔴净胜档多档候选(margin_candidates_pool):')
-    out.append(margin_candidates_pool(sections))
+    out.append(margin_candidates_pool(sections, asia_handi=handi))
     out.append('🔴总进球档查表(goal_bin_output):')
     out.append(goal_bin_output(sections))
-    out.append('🔴诱阻分类预计算(trap_classify_output·需欧盘参数时在calc_all调用):')
+    out.append('🔴诱阻分类预计算(trap_classify_output):')
+    _oh = _od = _oa = None
+    if eu_odds:
+        try:
+            _p = [float(x) for x in str(eu_odds).split(',')]
+            if len(_p) == 3 and all(x > 1 for x in _p):
+                _oh, _od, _oa = _p
+        except Exception:
+            _oh = _od = _oa = None
+    out.append(trap_classify_output(sections, oh=_oh, od=_od, oa=_oa,
+                                    handi=handi, water=water))
     return '\n'.join(out)
 
 if __name__ == '__main__':

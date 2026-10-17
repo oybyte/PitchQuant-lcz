@@ -91,10 +91,23 @@ def poisson_matrix(oh, od, oa, o25, u25=None, dc_rho=-0.12):
 # ═══════════════════════════════════════════════════════════════
 # 2. CS比分盘现场去抽水（市场直接定价·最强信号）
 # ═══════════════════════════════════════════════════════════════
+# 🔴2026-10-17 标注(P1-1): 本函数为**经验公式·未回测**。
+#   系数 1.35 / -1.35 / -0.05 与分档边界 1.8/0.9/0.35/-0.35/-0.9/-1.8 无公开出处，
+#   未经 Matches.csv 时间分割标定。项目另有「V6 四象限 22.7 万场」结论，
+#   两者口径不连——禁止把本函数当成同等证据强度使用。
+#   使用纪律: 只作**约束提示**（见 anchor_market_check 的 constraints/violations），
+#   **不得**用它替 LLM 决定取哪个锚（SKILL 明令「禁机械照搬」）。
+MARKET_NET_BAND_UNVALIDATED = True   # 回测标定后置 False 并删除本标注
+MARKET_NET_BAND_NOTE = '经验公式·未回测(系数1.35/-1.35/-0.05无出处)'
+
+
 def market_net_band(oh, od, oa):
     """🔴市场净胜期望档（2026-09-13·回测: 市场定净胜档 ±1球覆盖 68.3%）
     欧赔去水 → 期望净胜 → 档(H3+/H2/H1/D0/A1/A2/A3+)
-    返回 (档名, 期望净胜, (净胜下界, 净胜上界))——上下界按"±1球"口径定锚允许范围"""
+    返回 (档名, 期望净胜, (净胜下界, 净胜上界))——上下界按"±1球"口径定锚允许范围
+
+    ⚠️ 本档位的期望净胜系数与分档边界为**经验公式·未回测**（见 MARKET_NET_BAND_NOTE）。
+       仅作约束提示，不得据此自动定锚。"""
     try:
         _inv = {'H': 1/oh, 'D': 1/od, 'A': 1/oa}
     except Exception:
@@ -112,26 +125,52 @@ def market_net_band(oh, od, oa):
     return band, en, rng
 
 
-def anchor_market_check(top_scores, oh, od, oa, o25=None, u25=None, handi=None):
+def anchor_market_check(top_scores, oh, od, oa, o25=None, u25=None, handi=None, direction=None):
     """🔴锚-市场一致性检查（2026-09-13·用户要求"模型锚定一定要与市场信号一致"·脚本级强制）
 
     锚（主锚/次锚）必须与市场信号一致，三项逐条核查:
       ① 净胜档: 锚净胜球 ∈ 市场净胜期望档允许范围（±1 球·market_net_band）
       ② 大小球: O25<1.70(市场大球强) → 锚总进球须 ≥3; O25>2.10(市场小球强) → ≤2; 中性可跨档(须标注)
       ③ 盘口方向: handi<0(市场主让) → 锚不应是客胜; handi>0(市场受让) → 锚不应是主胜
-    🔴矛盾处理: 以市场为准给出【建议锚】（从候选中筛满足全部约束的最高概率比分）
-               → LLM 必须按建议取锚·禁机械照搬 Top1（市场是最校准信号·回测±5pp）
-    返回 dict(ok, band, exp_net, checks[], conflicts[], suggestion[])
+    🔴2026-10-17 修复(P1-1): 由「给建议锚」改为「给约束 + 逐条违反说明」。
+       原实现用一个**未回测**的经验公式替 LLM 选出 suggestion 并称「LLM 必须按建议取锚」，
+       与 SKILL「禁机械照搬」直接冲突，且 15/22 场「⚠矛盾」既没说违反哪条、也没有唯一解。
+       现约定:
+         · constraints = 约束事实（依据全部来自可审计的市场输入）
+         · violations  = 每个候选锚逐条违反了哪条约束
+         · 取哪个锚由 LLM 在约束内自行决定；suggestion 仅作「约束内候选参考」
+    返回 dict(ok, band, exp_net, unvalidated, constraints, violations, checks, conflicts, suggestion[])
     """
     band, en, rng = market_net_band(oh, od, oa)
-    res = {'ok': True, 'band': band,
-           'exp_net': (round(en, 2) if en is not None else None),
-           'checks': [], 'conflicts': [], 'suggestion': []}
-    if not top_scores:
-        return res
-    lo, hi = rng
     _big = (o25 is not None and o25 < 1.70)      # 市场大球强
     _small = (o25 is not None and o25 > 2.10)    # 市场小球强
+    lo, hi = rng
+    res = {'ok': True, 'band': band,
+           'exp_net': (round(en, 2) if en is not None else None),
+           # 🔴经验公式标注（防「冒充 22.7 万场结论」）
+           'unvalidated': MARKET_NET_BAND_UNVALIDATED,
+           'band_note': MARKET_NET_BAND_NOTE,
+           # 约束三元组: ①净胜档区间 ②总进球界 ③盘口方向禁项
+           'constraints': {
+               'net_range': [lo, hi] if lo is not None else None,
+               'band': band,
+               'min_total': 3 if _big else None,
+               'max_total': 2 if _small else None,
+               'forbid_home_anchor': (handi is not None and handi > 0),
+               'forbid_away_anchor': (handi is not None and handi < 0),
+               'ou_mode': ('big' if _big else ('small' if _small else 'neutral')),
+           },
+           'violations': [], 'checks': [], 'conflicts': [], 'suggestion': []}
+    # 🔴2026-10-17 修复(第二轮复跑发现): 增加「锚 vs 方向引擎」校验。
+    #   原实现只查锚 vs 市场(净胜档/大小球/盘口)，**完全不知道方向引擎的结论**
+    #   → 实测 宫崎 vs 磐田(方向=客胜) 的锚 1:1/1:0 仍报「✅ 均落在市场约束内」。
+    #   方向与锚互证是 SKILL 的硬要求(D4)，脚本必须自己能看见这个冲突。
+    _DIR2OUT = {'主胜': 'H', '平局': 'D', '客胜': 'A'}
+    if direction in _DIR2OUT:
+        res['constraints']['direction'] = direction
+        res['constraints']['anchor_must_match_direction'] = True
+    if not top_scores:
+        return res
     for lbl, sc in (('主锚', top_scores[0]), ('次锚', top_scores[1] if len(top_scores) > 1 else None)):
         if sc is None:
             continue
@@ -152,12 +191,41 @@ def anchor_market_check(top_scores, oh, od, oa, o25=None, u25=None, handi=None):
                 msgs.append('客胜锚与市场主让(handi=%.2f)矛盾' % handi)
             if handi > 0 and net > 0:
                 msgs.append('主胜锚与市场受让(handi=%.2f)矛盾' % handi)
+        # 🔴锚 vs 方向引擎（D4 方向-比分互证·主锚与次锚须至少一个落在判定方向内）
+        if direction in _DIR2OUT:
+            _out = 'H' if net > 0 else ('D' if net == 0 else 'A')
+            _w = _DIR2OUT[direction]
+            if _out != _w:
+                msgs.append('比分 %s 的赛果(%s)与方向引擎判定「%s」不符'
+                            % (sc, {'H': '主胜', 'D': '平局', 'A': '客胜'}[_out], direction))
+        # 逐条违反说明（供 LLM 自行取舍·不做自动定锚）
+        for _m in msgs:
+            res['violations'].append({'slot': lbl, 'score': sc, 'rule': _m})
         if msgs:
             res['ok'] = False
             res['conflicts'].append('%s %s: %s' % (lbl, sc, '; '.join(msgs)))
         else:
             res['checks'].append('%s %s ✅与市场一致' % (lbl, sc))
-    if not res['ok']:      # 建议锚: 筛满足全部市场约束的最高概率比分（按传入序即概率序）
+    # 🔴主锚+次锚**都不含**判定方向 → 硬冲突（两个锚全部落在方向之外，无法互证）
+    if direction in _DIR2OUT and top_scores:
+        _w = _DIR2OUT[direction]
+        _outs = []
+        for sc in top_scores[:2]:
+            try:
+                h, a = map(int, (sc.split(':') if isinstance(sc, str) else sc))
+            except Exception:
+                continue
+            _outs.append('H' if h > a else ('D' if h == a else 'A'))
+        if _outs and _w not in _outs:
+            res['ok'] = False
+            res['violations'].append({
+                'slot': '主锚+次锚', 'score': '/'.join(top_scores[:2]),
+                'rule': '两个锚的赛果(%s)均不含方向引擎判定「%s」→ 方向与锚无法互证，须在方向内重新定锚'
+                        % ('/'.join(_outs), direction)})
+            res['conflicts'].append('🔴方向-锚硬冲突: 主锚+次锚均不含「%s」' % direction)
+    # ⚠️2026-10-17(P1-1): 以下仅为「**约束内候选参考**」，不是必须采用的定锚结论。
+    #   原注释写「LLM 必须按建议取锚」→ 等于用未回测经验公式替 LLM 定锚，已废除该措辞。
+    if not res['ok']:      # 约束内候选: 筛满足全部市场约束的最高概率比分（按传入序即概率序）
         for sc in top_scores:
             try:
                 h, a = map(int, (sc.split(':') if isinstance(sc, str) else sc))
@@ -544,7 +612,7 @@ def bayesian_fusion(matrices, weights):
 # ═══════════════════════════════════════════════════════════════
 # 8. 主入口：现场分析
 # ═══════════════════════════════════════════════════════════════
-def analyze_live(oh, od, oa, o25, u25=None, handi=None, cs_odds=None, bqc_odds=None):
+def analyze_live(oh, od, oa, o25, u25=None, handi=None, cs_odds=None, bqc_odds=None, direction=None):
     """🔴现场比分分析主入口
     所有概率基于本场比赛实时数据计算，不查固定表
     输出: Top10比分 + 各源贡献 + 动态权重 + 置信度 + 不确定性"""
@@ -709,15 +777,17 @@ def analyze_live(oh, od, oa, o25, u25=None, handi=None, cs_odds=None, bqc_odds=N
 
     # 步骤8.5：锚-市场一致性检查（用户要求"模型锚定一定要与市场信号一致"·脚本级强制）
     # 锚(主锚/次锚)须与市场信号三项一致: ①净胜档∈市场净胜期望档±1球 ②总进球方向 vs 市场大小球 ③方向 vs 亚盘
-    # 矛盾 → 以市场为准给【建议锚】（LLM 必须按建议取锚·禁机械照搬 Top1）
+    # 🔴2026-10-17(P1-1): 由「给建议锚」改为「给约束+违反项」，取哪个锚由 LLM 决定。
+    # 🔴2026-10-17(第二轮): 追加「锚 vs 方向引擎」校验——原实现看不见方向结论，
+    #   导致 宫崎 vs 磐田(方向=客胜) 的锚 1:1/1:0 仍报「✅ 均落在市场约束内」。
     _amc = anchor_market_check([f'{h}:{a}' for (h, a), _p in ranked], oh, od, oa,
-                               o25=o25, u25=u25, handi=handi)
+                               o25=o25, u25=u25, handi=handi, direction=direction)
     result['market_anchor_check'] = _amc
     if not _amc['ok']:
         result['warnings'].append(
-            '⚠️锚-市场矛盾: ' + ' | '.join(_amc['conflicts'])
-            + ' → 以市场档 %s(净胜%+.2f球) 为基准取锚 · 🔴建议锚: %s（LLM 必须按建议取锚·禁机械照搬 Top1）'
-            % (_amc['band'], _amc['exp_net'] or 0, ' / '.join(_amc['suggestion']) or '无候选'))
+            '⚠️锚-市场/方向矛盾: ' + ' | '.join(_amc['conflicts'])
+            + ' → 在该约束内重新定锚 · 约束内候选参考: %s（非必须采用·禁机械照搬 Top1）'
+            % (' / '.join(_amc['suggestion']) or '无候选'))
 
     # 各源Top3对比（贡献分解）
     result['source_top3'] = {}

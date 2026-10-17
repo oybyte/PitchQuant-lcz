@@ -62,13 +62,40 @@ def solve_lambda(odd_h, odd_d, odd_a, o25, u25=None, xg_h=None, xg_a=None, handi
     if xg_h and xg_a:
         lh = max(0.3, min(4.5, lh + max(-0.3, min(0.3, xg_h - lh)) * 0.5))
         la = max(0.3, min(4.5, la + max(-0.3, min(0.3, xg_a - la)) * 0.5))
-    # 亚盘净胜微调（handi 负=主让·d 微调 λ 差·clamp 总进球不变）
+    # 🔴2026-10-17 修复(第二轮复跑发现·P0): 亚盘由「覆盖」改为「受限校正」。
+    #
+    # 原实现: d = -handi*0.6; lh=(t+d)/2; la=(t-d)/2
+    #   → 用盘口**重算** λ 差，完全丢弃欧赔 1X2 已反推的主客分配。
+    #   实测 23/23 场全部被改动: 曼城 -16.1pp / 比利亚雷亚尔 -13.0pp / 富勒姆 -12.3pp；
+    #   平手盘(handi=0)直接把 λ 拉成对称，抹掉「欧赔主队更被看好」这一信息。
+    #   函数注释自称「微调」，实现却是覆盖 —— 声明与行为不符。
+    #
+    # 新口径: 欧赔承载方向信息（1X2 去水已是市场对主客强弱的完整表达），
+    #   亚盘只作**小幅校正**，双上限夹逼:
+    #     ① 单边位移 ≤ HANDI_MAX_SHIFT 球（默认 0.25）
+    #     ② 不超过欧赔已有 λ 差的一半（防反转与防抹平）
+    #     ③ 总进球不变（原设计承诺）
     if handi is not None:
-        d = -handi * 0.6
         t2 = lh + la
-        lh = (t2 + d) / 2; la = (t2 - d) / 2
-        lh = max(0.2, min(5, lh)); la = max(0.2, min(5, la))
+        d0 = lh - la                       # 欧赔反推的净胜期望
+        d1 = -float(handi) * HANDI_GAIN    # 盘口隐含净胜期望（负=主让→d1>0）
+        target = (d0 + d1) / 2.0           # 向盘口靠拢，但只走一半（保留欧赔权重）
+        shift = target - d0
+        shift = max(-HANDI_MAX_SHIFT, min(HANDI_MAX_SHIFT, shift))
+        d = d0 + shift
+        # 🔴方向守卫: 亚盘只可「强化/削弱」欧赔方向，**不可反转**。
+        #   若 d 与欧赔原始方向 d0 相反，或削弱到不足原差值一半 → 钉回原差值的一半。
+        if d0 != 0 and (d * d0 < 0 or abs(d) < abs(d0) * 0.5):
+            d = d0 * 0.5
+        elif d0 == 0:
+            d = 0.0                        # 欧赔完全对称时，亚盘也不引入方向
+        lh = max(0.2, min(5, (t2 + d) / 2))
+        la = max(0.2, min(5, (t2 - d) / 2))
     return lh, la
+
+# 🔴2026-10-17: 亚盘校正参数（单一真源·禁散落硬编码）
+HANDI_GAIN = 0.60       # 盘口 → 净胜期望的换算斜率（原实现即用 0.6）
+HANDI_MAX_SHIFT = 0.25  # λ 单边最大位移（球）——亚盘是校正，不是覆盖
 
 DC_RHO = -0.12  # Dixon-Coles 低比分相关系数(ρ<0·0:0/1:1正相关)·文献标定-0.1~-0.2·Matches精确标定待完善(2026-08-29 M2)
 
