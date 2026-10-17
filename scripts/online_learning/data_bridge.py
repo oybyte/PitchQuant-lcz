@@ -18,10 +18,19 @@
     --net  启用网络源（clubelo/xg/api-football·默认关闭以保速度与稳定）
 """
 import os, re, sys, io, json, subprocess, time
-HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.dirname(HERE)                 # data/
-TMP = os.path.join(DATA, 'tmp')
-ROOT = os.path.dirname(DATA)
+HERE = os.path.dirname(os.path.abspath(__file__))     # <repo>/scripts/online_learning
+# ── 目录常量（🔴2026-10-18 修复 D1: 原 DATA=dirname(HERE) 指向 scripts/ 而非 data/）──
+#   根因: HERE 在 scripts/online_learning 下，上溯**两层**才是仓库根，一层只会到 scripts/。
+#   后果（实测）: src_haf 去 scripts/tmp/homeaway_table.json 找 → 恒 missing
+#     → HAF 139 队主客场档案整批丢失（本批 24/24 场），而该表真身在 data/tmp/（111 KB）。
+#   判据真源: scripts/tmp/table_paths.py 的 _SEARCH_DIRS 首位即 data/tmp（唯一规范位置）。
+#   🔴注意: 抓取脚本(fetch_clubelo.py/understat_xg.py)确实在 scripts/tmp/，
+#   故 PYDIR 与 TMP 是**两类不同目录**，必须分开解析，不可合并。
+SCRIPTS = os.path.dirname(HERE)              # <repo>/scripts
+ROOT = os.path.dirname(SCRIPTS)              # <repo>（仓库根·与工作目录无关）
+DATA = os.path.join(ROOT, 'data')            # <repo>/data       ← 数据资产
+TMP = os.path.join(DATA, 'tmp')              # <repo>/data/tmp   ← 数据表（规范位置）
+PYDIR = os.path.join(SCRIPTS, 'tmp')         # <repo>/scripts/tmp ← 抓取脚本
 sys.path.insert(0, HERE)
 # stdout 包装移至 __main__（被 import 时不得重复包装·防 I/O closed 错误）
 ENV = dict(os.environ, PYTHONIOENCODING='utf-8')
@@ -416,7 +425,7 @@ def src_haf(home, away):
 def src_clubelo(home, away):
     cache = [f for f in os.listdir(TMP) if f.startswith('clubelo_') and f.endswith('.json')]
     if not cache:
-        rc, out = _run([sys.executable, os.path.join(TMP, 'fetch_clubelo.py')], timeout=90)
+        rc, out = _run([sys.executable, os.path.join(PYDIR, 'fetch_clubelo.py')], timeout=90)
         cache = [f for f in os.listdir(TMP) if f.startswith('clubelo_') and f.endswith('.json')]
         if not cache:
             return 'error', {}, 'clubelo 抓取失败（网络/代理）: %s' % out[-80:]
@@ -460,7 +469,7 @@ def src_clubelo(home, away):
 
 
 def src_xg(home, away):
-    script = os.path.join(TMP, 'understat_xg.py')
+    script = os.path.join(PYDIR, 'understat_xg.py')
     if not os.path.exists(script):
         return 'missing', {}, 'understat_xg.py 不存在'
     rc, out = _run([sys.executable, script], timeout=90)
@@ -766,14 +775,37 @@ def src_euro_odds(home, away, league=None, date_str=None):
 
 
 # ---------- 主接入 ----------
-def collect(txt_path, league=None, net=False, date_str=None):
+def collect(txt_path, league=None, net=False, date_str=None,
+            net_injury=None, net_odds=None, net_form=None):
+    """统一接入。
+
+    🔴网络通道隔离（2026-10-18 修复 D2）:
+      原实现把 add('news') / add('euro_odds') 写在 if net: 分支**之外** → 无条件下发，
+      即使不传 --net（默认 False）仍会联网打 Bing / Odds-API。实测预测日志
+      news='Bing News 无结果' 即「已发请求后失败」，与「服务端未提供」性质完全不同
+      —— 正是项目条款①（防静默跳过）要防的混淆。
+
+      现拆为三条**互相独立**的通道，默认全关：
+        net_injury  伤停/阵容 —— Bing 新闻 + api-football injuries（唯一保留的联网通道）
+        net_odds    欧盘赔率 —— Odds-API（源 B1/F）
+        net_form    实力/状态 —— clubelo ELO + understat xG + api-football predictions/odds
+
+      向后兼容：显式 net=True 且未指定任何 net_* → 三者全开（旧行为）。
+    """
+    if net and net_injury is None and net_odds is None and net_form is None:
+        net_injury = net_odds = net_form = True
+    net_injury = bool(net_injury)
+    net_odds = bool(net_odds)
+    net_form = bool(net_form)
     home, away, head = extract_teams(txt_path)
     # 修复(P0): 赛程日期提前解析 → 供 euro_odds 选场消歧(原仅在 api_football 段
     # 才解析 → 欧盘拿到 date_str=None → 整赛季事件表只能取首个同名 → 可能锚错轮次)
     _kick_bj, _kick_utc = extract_match_date(txt_path)
     res = {'txt_path': txt_path, 'head': head, 'home': home, 'away': away,
            'kickoff': {'beijing': _kick_bj, 'utc': _kick_utc},
-           'league_arg': league, 'sources': {}, 'features': {}, 'rich': {}, 'status': {}}
+           'league_arg': league, 'sources': {}, 'features': {}, 'rich': {}, 'status': {},
+           # 🔴通道状态留痕（下游三态标注/审计可查「到底开没开网络」）
+           'channels': {'injury': bool(net_injury), 'odds': bool(net_odds), 'form': bool(net_form)}}
 
     def add(name, fn, *a):
         t0 = time.time()
@@ -794,14 +826,28 @@ def collect(txt_path, league=None, net=False, date_str=None):
         res['features']['league'] = league
     res['league'] = res['features'].get('league') or league or '?'
 
-    # B HAF（本地）
+    # B HAF（本地·data/tmp 表）
     add('haf', src_haf, home, away)
-    # G H2H / H news / F euro_odds（缺环境标 missing）
+    # G H2H（本地·Matches.csv）
     add('h2h', src_h2h, home, away)
-    add('news', src_news, home, away)
-    add('euro_odds', src_euro_odds, home, away, res.get('league') or league, date_str or _kick_utc)
-    # 网络源
-    if net:
+
+    # H news 伤停（网络·唯一保留通道）—— 🔴受 net_injury 约束，禁无条件调用
+    if net_injury:
+        add('news', src_news, home, away)
+    else:
+        res['status']['news'] = {'status': 'skipped',
+                                 'note': '伤停通道未启用（--net-injury 开启）', 'ms': 0}
+
+    # F euro_odds 欧盘（网络）—— 🔴受 net_odds 约束
+    if net_odds:
+        add('euro_odds', src_euro_odds, home, away,
+            res.get('league') or league, date_str or _kick_utc)
+    else:
+        res['status']['euro_odds'] = {'status': 'skipped',
+                                      'note': '欧盘通道未启用（--net-odds 开启）', 'ms': 0}
+
+    # 实力/状态类网络源（clubelo/xg/api-football）—— 🔴受 net_form 约束
+    if net_form:
         st, d = add('clubelo', src_clubelo, home, away)
         if st == 'ok':
             eh, ea = d.get('elo_home'), d.get('elo_away')
@@ -818,7 +864,8 @@ def collect(txt_path, league=None, net=False, date_str=None):
             res['match_date'] = {'beijing': bj_d, 'utc': ds}
     else:
         for s in ('clubelo', 'xg', 'api_football'):
-            res['status'][s] = {'status': 'skipped', 'note': '未启用网络源（--net 开启）', 'ms': 0}
+            res['status'][s] = {'status': 'skipped',
+                                'note': '实力/状态通道未启用（--net-form 开启）', 'ms': 0}
 
     # E. H2H 特征汇入（3 个·无数据填 0·不臆造）
     h2h = res['sources'].get('h2h') or {}
@@ -932,11 +979,29 @@ def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument('txt'); ap.add_argument('--league')
-    ap.add_argument('--net', action='store_true', help='(默认已启用直连源)'); ap.add_argument('--no-net', action='store_true', help='离线模式·禁用网络源')
+    # 🔴2026-10-18 修复: 原实现默认 (not a.no_net) = True → **默认联网**，
+    #   与本文档 L18 自述「--net 启用网络源（默认关闭）」相反。
+    #   现改为默认全离线，仅显式开关才联网；--net 保留为「全开」兼容别名。
+    ap.add_argument('--net-injury', dest='net_injury', action='store_true',
+                    help='启用伤停通道（Bing 新闻 + api-football injuries）')
+    ap.add_argument('--net-odds', dest='net_odds', action='store_true',
+                    help='启用欧盘通道（Odds-API）')
+    ap.add_argument('--net-form', dest='net_form', action='store_true',
+                    help='启用实力/状态通道（clubelo ELO + understat xG + api-football）')
+    ap.add_argument('--net', action='store_true',
+                    help='全开三通道（兼容旧用法·等价于三个 --net-* 同时给出）')
+    ap.add_argument('--no-net', action='store_true', help='显式离线（默认即离线）')
     ap.add_argument('--date'); ap.add_argument('--json', action='store_true')
     ap.add_argument('--save', action='store_true', help='保存为预测日志')
     a = ap.parse_args()
-    r = collect(a.txt, a.league, (not a.no_net), a.date)   # 默认启用直连源(api-football/clubelo/understat)·VPN 源仍标 missing
+    if a.no_net:
+        ni = no = nf = False
+    elif a.net:
+        ni = no = nf = True
+    else:
+        ni, no, nf = a.net_injury, a.net_odds, a.net_form
+    r = collect(a.txt, a.league, False, a.date,
+                net_injury=ni, net_odds=no, net_form=nf)
     if a.json:
         print(json.dumps(r, ensure_ascii=False)[:2000])
     else:

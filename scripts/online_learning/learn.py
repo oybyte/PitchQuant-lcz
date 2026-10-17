@@ -24,11 +24,19 @@ def run(cmd):
     return r.stdout or ''
 
 
-def _features_from_txt(txt_path, league=None, net=True):
+def _features_from_txt(txt_path, league=None, net=False, allow_net=False):
     """data_bridge 统一接入（8 源）·失败回退 txt_features"""
     try:
         import data_bridge as DB
-        r = DB.collect(txt_path, league, net)
+        # 2026-10-18 联网策略（唯一真源 net_policy）: 复盘默认离线；
+        # 仅当用户本轮明确要求（allow_net）时才联网。
+        # 原实现按 no-net 取反 -> 复盘默认联网，与该策略直接冲突。
+        try:
+            import net_policy as NP
+            _kw = NP.for_review(allow=(allow_net or net))
+        except Exception:
+            _kw = {'net_injury': bool(net), 'net_odds': bool(net), 'net_form': bool(net)}
+        r = DB.collect(txt_path, league, net=False, **_kw)
         f = r.get('features') or {}
         st = r.get('status') or {}
         diag = {'complete': bool(f.get('home_odds') and f.get('draw_odds') and f.get('away_odds')),
@@ -53,7 +61,11 @@ def main():
     ap.add_argument('--handi', type=float, default=0); ap.add_argument('--o25', type=float, default=1.9)
     ap.add_argument('--pred', default=''); ap.add_argument('--pred-dir', type=int, default=1)
     ap.add_argument('--anchor', default=''); ap.add_argument('--center', type=float, default=0)
-    ap.add_argument('--no-net', action='store_true'); ap.add_argument('--status', action='store_true')
+    # 复盘联网需用户明确要求: 默认离线; --online 才联网 (--no-net 保留兼容)
+    ap.add_argument('--online', action='store_true',
+                    help='用户明确要求时才用: 开启联网（默认离线）')
+    ap.add_argument('--no-net', action='store_true', help='显式离线（默认即离线）')
+    ap.add_argument('--status', action='store_true')
     a = ap.parse_args()
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -80,7 +92,10 @@ def main():
 
     feat = None
     if a.txt:
-        feat, diag = _features_from_txt(a.txt, a.league, net=not a.no_net)
+        # 默认离线; 仅 --online (用户明确要求) 时联网.
+        # --no-net 优先级最高(显式离线可覆盖 --online).
+        _allow = bool(a.online) and (not bool(a.no_net))
+        feat, diag = _features_from_txt(a.txt, a.league, allow_net=_allow)
         if diag.get('sources_ok') is not None:
             _ok = ','.join(diag.get('sources_ok') or []) or '-'
             _miss = '; '.join((diag.get('sources_missing') or [])[:4]) or '-'
