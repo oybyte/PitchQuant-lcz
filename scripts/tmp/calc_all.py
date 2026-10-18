@@ -958,6 +958,20 @@ def main():
     off = _ov.get('--off') or None
     print('=' * 70)
     print('calc_all.py — 全覆盖预计算(2026-09-02·步骤遗失结构性根除)')
+    # 🔴 2026-10-18：回显输入文件的三条头部信息
+    #   实测问题：v259_ingest 写入的「联赛基准键 / 基线性质 / 多机构合并去水」三行
+    #   **完全没有进入 calc_all 输出** → 下游代理根本看不到。
+    #   这里只做回显（不重算），来源仍是输入文件。
+    try:
+        _hd = open(txt_path, encoding='utf-8').read()
+        for _key in ('🔴联赛基准键', '🔴基线性质', '🔴多机构合并去水'):
+            for _ln in _hd.split(chr(10)):
+                if _ln.strip().startswith(_key):
+                    print('  [输入] ' + _ln.strip())
+                    break
+    except Exception:
+        pass
+
     print('=' * 70)
     # ① 跑 calc_match 全管道(含修正的run_extensions·净胜档/总进球档已接入)
     # 🔴2026-10-17 修复(P0-1): **参数必须透传**。
