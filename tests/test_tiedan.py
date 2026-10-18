@@ -10,7 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = os.path.join(ROOT, 'scripts', 'tmp')
 sys.path.insert(0, TMP)
 
-BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259e')
+BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259V')
 
 
 def _has_batch():
@@ -20,10 +20,10 @@ def _has_batch():
 def test_threshold_is_single_source():
     import importlib
     M = importlib.import_module('calc_v3572')
-    assert M.TIEDAN_SKEW_MIN == 400.0
-    assert M.TIEDAN_HIT_RATE == 85.5
-    assert M.TIEDAN_N == 62
-    assert M.TIEDAN_COVERAGE == 14.1
+    assert M.TIEDAN_SKEW_MIN == 450.0
+    assert M.TIEDAN_HIT_RATE == 85.7
+    assert M.TIEDAN_N == 49
+    assert M.TIEDAN_COVERAGE == 11.2
 
 
 def test_direction_full_marks_tiedan_by_skew():
@@ -31,18 +31,18 @@ def test_direction_full_marks_tiedan_by_skew():
     M = importlib.import_module('calc_v3572')
     r1 = M.direction_full(1.11, 8.60, 11.00, None)
     assert r1['铁胆'] is True, r1
-    assert r1['skew'] >= 400
+    assert r1['skew'] >= 450
     r2 = M.direction_full(2.55, 3.73, 2.20, None)
     assert r2['铁胆'] is False, r2
-    assert r2['skew'] < 400
+    assert r2['skew'] < 450
 
 
 def test_tiedan_label_carries_evidence():
     import importlib
     M = importlib.import_module('calc_v3572')
     r = M.direction_full(1.11, 8.60, 11.00, None)
-    assert '85.5%' in r['铁胆标签']
-    assert 'n=62' in r['铁胆标签']
+    assert '85.7%' in r['铁胆标签']
+    assert 'n=49' in r['铁胆标签']
 
 
 def test_tiedan_does_not_change_direction():
@@ -87,7 +87,7 @@ def test_tiedan_label_absent_when_below_threshold():
     assert r['铁胆标签'].startswith('—')
 
 
-@pytest.mark.skipif(not _has_batch(), reason='需 data/tmp/batch_v259e')
+@pytest.mark.skipif(not _has_batch(), reason='需 data/tmp/batch_v259V')
 def test_calc_all_prints_never_100_notice():
     p = os.path.join(BATCH, '10-18_00_30_德甲_拜仁慕尼黑_vs_RB莱比锡.txt')
     if not os.path.exists(p):
@@ -100,11 +100,11 @@ def test_calc_all_prints_never_100_notice():
     out = r.stdout
     assert '铁胆档' in out
     assert '铁胆 ≠ 100%' in out, '缺「铁胆≠100%」声明'
-    assert '85.5%' in out
-    assert 'n=62' in out
+    assert '85.7%' in out
+    assert 'n=49' in out
 
 
-@pytest.mark.skipif(not _has_batch(), reason='需 data/tmp/batch_v259e')
+@pytest.mark.skipif(not _has_batch(), reason='需 data/tmp/batch_v259V')
 def test_calc_all_marks_non_tiedan_match():
     p = os.path.join(BATCH, '10-17_19_30_英超_埃弗顿_vs_切尔西.txt')
     if not os.path.exists(p):

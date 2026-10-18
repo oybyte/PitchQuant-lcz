@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = os.path.join(ROOT, 'scripts', 'tmp')
 sys.path.insert(0, TMP)
 
-BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259R')
+BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259V')
 
 
 def test_s9_s10_s11_are_not_hardcoded_zero():
@@ -93,7 +93,7 @@ def test_sole_trigger_reachable_with_high_p_draw():
     assert trig2 != 'sole', trig2
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259R")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_batch_group_b_actually_fires():
     """真实批次上组B 必须至少在一部分场次 >0（证明接线生效）"""
     out_dir = os.path.join(BATCH, 'out')

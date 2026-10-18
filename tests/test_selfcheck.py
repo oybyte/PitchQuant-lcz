@@ -65,19 +65,19 @@ def test_sc03_passes_at_100():
 
 
 def test_sc04_catches_tiedan_below_threshold():
-    """标铁胆但 skew<400 → 抓出"""
-    txt = '铁胆档: 🔴铁胆(skew=300≥400·441场实测命中85.5%·n=62)\n铁胆 ≠ 100%\n'
+    """标铁胆但 skew<450 → 抓出"""
+    txt = '铁胆档: 🔴铁胆(skew=300≥450·439场实测命中85.7%·n=49)\n铁胆 ≠ 100%\n'
     assert 'SC04' in _codes(txt)
 
 
 def test_sc05_requires_never_100_notice():
     """标铁胆但缺「铁胆 ≠ 100%」→ 抓出"""
-    txt = '铁胆档: 🔴铁胆(skew=805≥400·441场实测命中85.5%·n=62)\n'
+    txt = '铁胆档: 🔴铁胆(skew=805≥450·439场实测命中85.7%·n=49)\n'
     assert 'SC05' in _codes(txt)
 
 
 def test_sc05_passes_with_notice():
-    txt = ('铁胆档: 🔴铁胆(skew=805≥400·441场实测命中85.5%·n=62)\n'
+    txt = ('铁胆档: 🔴铁胆(skew=805≥450·439场实测命中85.7%·n=49)\n'
            '🔴 铁胆 ≠ 100%：约每 7 场错 1 场\n')
     assert 'SC05' not in _codes(txt)
 
@@ -86,12 +86,12 @@ def test_empty_text_yields_no_false_positive():
     assert _codes("") == []
 
 
-@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, "data", "tmp", "batch_v259R", "out")),
-                    reason="需 data/tmp/batch_v259R/out")
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, "data", "tmp", "batch_v259V", "out")),
+                    reason="需 data/tmp/batch_v259V/out")
 def test_real_batch_is_self_consistent():
     """真实批次必须全部自洽（否则说明模型输出内部矛盾）"""
     import check_vig_basis as V
-    out = os.path.join(ROOT, 'data', 'tmp', 'batch_v259R', 'out')
+    out = os.path.join(ROOT, 'data', 'tmp', 'batch_v259V', 'out')
     bad = []
     for fn in sorted(os.listdir(out)):
         if not fn.endswith('.txt'):

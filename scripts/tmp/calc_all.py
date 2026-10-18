@@ -1055,8 +1055,8 @@ def main():
                 if dr.get('铁胆'):
                     print('  🔴🔴铁胆档: %s' % dr.get('铁胆标签'))
                     print('     ↓ 口径：skew=%s（最高隐含/次高隐含）≥ %g；与信心档(%s)是两个维度' % (
-                          dr.get('skew'), 400, dr.get('置信度')))
-                    print('     ↓ 实证：441 场实测命中 85.5%（n=62）·分批 60.0/88.9/87.5/87.5（小批 n=5 拉低，其余三批 87.5-88.9%）')
+                          dr.get('skew'), __import__('calc_v3572').TIEDAN_SKEW_MIN, dr.get('置信度')))
+                    print('     ↓ 实证：439 场实测命中 85.7%（n=49）·阈值已校正（400→450）·分档:400→82.2% / 450→85.7% / 800→90.9%')
                     print('     🔴 铁胆 ≠ 100%：约每 7 场错 1 场，错误绝大多数是「平局」')
                 else:
                     print('  铁胆档: %s' % dr.get('铁胆标签'))
@@ -1211,10 +1211,15 @@ def main():
                         ls['lambda']['home'], ls['lambda']['away'], ls['lambda']['total'], ls['sources_used']))
                     print('  动态权重: %s' % ls['dynamic_weights'])
                     print('  Top5比分: %s' % ' | '.join('%s(%.1f%%)' % (x['score'], x['prob']) for x in ls['top10'][:5]))
-                    # 🔴🔴 2026-10-17 🔴🔴【多源聚合裁决】用户命令：方向冲突时**以多源聚合为准**。
-                    #   对 AGENTS.md §5.5「方向铁依据 = 模型计算结果」的用户明确覆盖。
-                    #   聚合来自 live_score_engine 的贝叶斯融合（泊松+让球+大小球+CS+半场+先验），
-                    #   **不含 direction_full** → 不构成循环论证。
+                    # 🔴🔴 2026-10-18 【裁决规则已撤销】
+                    #   原规则（用户指令 2026-10-17）：两引擎冲突时以多源聚合为准。
+                    #   撤销依据：**439 场实测**（batch_{2_5_8,74,140,203}）
+                    #     · 裁决生效 34 场 → 改对 11 / 改错 16 / 都错 7 → **净 -5 场**
+                    #     · 方向命中：裁决后 59.0% vs 价格引擎 59.9%  → **-0.9pp**
+                    #     · 分 gap 看：gap 3-5pt 聚合对 9/价格对 12；gap 5-10pt 聚合 2/价格 4
+                    #       → **每个区间价格引擎都更准**，加严门槛也救不回来
+                    #   结论：该规则已被数据证伪 → 回退到「方向铁依据 = direction_full」（AGENTS §5.5）。
+                    #   🔴 聚合仍作**对照信号**输出（不影响方向），冲突时标注「仅供参考」。
                     try:
                         _agr = ls.get('聚合') or ls.get('aggregated') or {}
                         _av = [_agr.get('home_win'), _agr.get('draw'), _agr.get('away_win')]
@@ -1225,35 +1230,21 @@ def main():
                             _agg_dir = _ORDER[_i_top]
                             _gap = _pv[_i_top] - sorted(_pv)[-2]
                             _price_dir = _dirv
-                            print('=' * 70)
-                            print('🔴🔴多源聚合裁决（方向层·用户命令优先）')
+                            print('─' * 70)
+                            print('🔴多源聚合对照（方向仍以 direction_full 为准）')
                             print('  价格引擎(direction_full): %s  ↔  多源聚合: %s(%.1f%%)' % (
                                 _price_dir, _agg_dir, _pv[_i_top]))
                             print('  聚合分布: 主 %.1f%% / 平 %.1f%% / 客 %.1f%%  ·  首两向 gap %.1fpt  ·  数据源: %s' % (
                                 _pv[0], _pv[1], _pv[2], _gap, ls.get('sources_used')))
-                            # 🔴 最小 gap 门槛（用户命令 2026-10-17）：gap<3pt 时两引擎实为噪声，
-                            #   不做裁决（不给主方向），直接判「无共识·三向覆盖」。
-                            #   3-5pt：裁决生效但降级为低分辨力（仍须三向覆盖）。
-                            #   ≥5pt：可判。
-                            if _gap < 3:
-                                print('  → ⛔ **无共识·不裁决**（gap %.1fpt<3 阈值）→ 不给主方向，必须三向覆盖' % _gap)
-                                print('     依据：gap<3pt 时两引擎差异落在模型误差内，任何一方都不具备可辨识度')
-                                print('     保留：上方两引擎输出均不删除，仅作参考（不作为单押依据）')
-                                print('     ⚠️ 若业务上仍需选一个方向：按裁决规则取聚合向 %s，但须标注「无共识」' % _agg_dir)
-                            elif _agg_dir == _price_dir:
-                                print('  → 两引擎一致（无需裁决）')
+                            if _agg_dir == _price_dir:
+                                print('  → 两引擎一致')
                             else:
-                                print('  → 🔴 裁决生效：**方向 = %s**（原价格引擎 %s 被覆盖）' % (
-                                    _agg_dir, _price_dir))
-                                print('     ↓ 依据：聚合=泊松+让球+大小球+CS+半场+先验 贝叶斯融合（不含 direction_full）')
-                                if _gap < 5:
-                                    print('     ⚠️ gap %.1fpt<5 → 🔴低分辨力·必须三向覆盖（主/平/客全列）·禁单押' % _gap)
-                                else:
-                                    print('     ✓ gap %.1fpt≥5 → 可判，仍需与让球盘/大小球方向交叉核对' % _gap)
-                                print('     ↓ 保留：上方 direction_full 不删除，仅作对照（方向异常可回溯价格层）')
-                            print('=' * 70)
+                                print('  → ⚠️ 两引擎分歧（gap %.1fpt）——**仅供参考，不改方向**' % _gap)
+                                print('     依据：439 场实测证明「以聚合为准」净收益 -5 场（59.0%% vs 59.9%%）→ 规则已撤销')
+                                print('     保留：若你有独立证据证明本场聚合更可信，可人工覆盖并标注理由')
+                            print('─' * 70)
                     except Exception as _arb_e:
-                        print('  ⚠️聚合裁决段异常: %s' % str(_arb_e)[:80])
+                        print('  ⚠️聚合对照段异常: %s' % str(_arb_e)[:80])
                     print('  🔴主锚建议: %s | 次锚建议: %s(比分锚定起点·LLM综合本场基本面确认·禁机械照搬)' % (
                         ls['top10'][0]['score'], ls['top10'][1]['score']))
                 # 市场净胜期望档（用户建议"按市场信号查表"·回测: 市场定净胜档±1球68.3%）

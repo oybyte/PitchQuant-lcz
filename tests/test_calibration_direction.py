@@ -16,7 +16,7 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = os.path.join(ROOT, 'scripts', 'tmp')
-BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259C')
+BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259V')
 
 
 def _run(name, league, eu, handi, o25, u25, water):
@@ -29,7 +29,7 @@ def _run(name, league, eu, handi, o25, u25, water):
     return r.stdout
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_calibration_labels_the_actual_hottest_direction():
     """校准行必须写明它作用在哪个方向，而不是恒说「主胜」"""
     out = _run("10-17_19_30_英超_埃弗顿_vs_切尔西.txt", "epl",
@@ -40,7 +40,7 @@ def test_calibration_labels_the_actual_hottest_direction():
     assert m.group(1) == "负", "热门方向应为客胜(负)，实得 %s" % m.group(1)
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_home_favorite_still_calibrated():
     """主胜为热门时照常校准（防修坏）"""
     out = _run("10-18_00_30_德甲_拜仁慕尼黑_vs_RB莱比锡.txt", "bundesliga",
@@ -49,7 +49,7 @@ def test_home_favorite_still_calibrated():
     assert m and m.group(1) == "胜", out[-600:]
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_calibration_present_for_every_match():
     """26/26 场都要有校准行（原先客胜热门场次整段缺失）"""
     files = [f for f in sorted(os.listdir(BATCH))

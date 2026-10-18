@@ -16,7 +16,7 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = os.path.join(ROOT, 'scripts', 'tmp')
-BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259C')
+BATCH = os.path.join(ROOT, 'data', 'tmp', 'batch_v259V')
 
 
 def _run(name, league, eu, handi, o25, u25, water):
@@ -29,7 +29,7 @@ def _run(name, league, eu, handi, o25, u25, water):
     return r.stdout
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_skew_line_declares_its_caliber():
     """skew 行必须标明是未校准口径，并给出校准后对照值"""
     out = _run("10-18_00_30_德甲_拜仁慕尼黑_vs_RB莱比锡.txt", "bundesliga",
@@ -38,7 +38,7 @@ def test_skew_line_declares_its_caliber():
     assert "校准后" in out and "铁胆口径" in out, "缺校准后对照值"
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_two_skew_calibers_are_both_present_and_differ():
     """两个 skew 口径必须同时可见（775 vs 805），而不是只剩一个"""
     import re
@@ -51,7 +51,7 @@ def test_two_skew_calibers_are_both_present_and_differ():
     assert int(m2.group(1)) >= int(m1.group(1)), "校准后反低于未校准，修正方向可疑"
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_input_header_info_is_echoed_into_output():
     """ingest 写的三条头部信息必须出现在 calc_all 输出里"""
     out = _run("10-18_00_30_德甲_拜仁慕尼黑_vs_RB莱比锡.txt", "bundesliga",
@@ -60,7 +60,7 @@ def test_input_header_info_is_echoed_into_output():
         assert k in out, "输入头部 %s 未回显到输出" % k
 
 
-@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259C")
+@pytest.mark.skipif(not os.path.isdir(BATCH), reason="需 data/tmp/batch_v259V")
 def test_echo_is_tagged_as_input_not_recomputed():
     """回显必须标 [输入]，不得让人误以为是 calc_all 重算的结果"""
     out = _run("10-18_00_30_德甲_拜仁慕尼黑_vs_RB莱比锡.txt", "bundesliga",
