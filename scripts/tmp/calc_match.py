@@ -316,7 +316,7 @@ def main():
                        '西甲': 'laliga', '法甲': 'ligue1', '荷甲': 'eredivisie',
                        '葡超': 'portugal', '芬超': 'finland', '芬超冠': 'finland',
                        '挪超': 'norway', '日职联': 'japan', '日职乙': 'japan',
-                       '韩K联': 'china', '中超': 'china', '欧冠': 'ec', '欧联': 'ec', '欧协联': 'ec'}
+                       '中超': 'china', '欧冠': 'ec', '欧联': 'ec', '欧协联': 'ec'}
         _lk = (league or '').strip()
         _lk = _SLUG_ALIAS.get(_lk, _lk.lower().replace(' ', '').replace('-', ''))
         if _lk in LEAGUE_VIG:

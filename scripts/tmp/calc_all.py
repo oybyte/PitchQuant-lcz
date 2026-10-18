@@ -560,10 +560,6 @@ CHECKLIST_NOTE = {
     'C25': 'N/A(原因:footballcharts 域名已失效·降级 understat_xg)',
     'C30': 'N/A(原因:案例库 data/case-library 未随公开版分发)',
 }
-# 可动态判定的项（依赖运行时配置，不能固定为 N/A）
-CHECKLIST_DYNAMIC = {
-    'C13': 'is_top5', 'C26': 'is_top5', 'C27': 'is_top5',   # 五大才触发（已由 cond 处理）
-}
 
 
 def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False, v6_status=None,
