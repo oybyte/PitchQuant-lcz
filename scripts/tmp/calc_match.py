@@ -270,8 +270,73 @@ def main():
         league = None
         if len(sys.argv) > 2:
             league = sys.argv[2]
-        eu_vig = LEAGUE_VIG.get(league or '', 0.069)
-        print(f"  竞彩抽水 {vig*100:.2f}% · 欧盘基准(联赛{'查表' if league in LEAGUE_VIG else '缺省6.9%'}) {eu_vig*100:.2f}% → 反抽水比 {vig/eu_vig:.2f}x" + (" 🔴触发反抽水(>1.30)" if vig/eu_vig > 1.30 else ""))
+        # 🔴2026-10-17(P0·口径分叉): LEAGUE_VIG 的键是英文 slug（epl/bundesliga/seriea…），
+        #   历史调用方一律传中文「英超」→ 查表恒 miss → 26/26 场落「缺省6.9%」而无人察觉。
+        #   现做 slug/中文双向归一；仍认不出时**显式标「无数据(该联赛未登记基准)」**，
+        #   不再让缺省值冒充查表结果。
+        _SLUG_ALIAS = {'英超': 'epl', '英冠': 'championship', '英甲': 'league1', '英乙': 'league2',
+                       '德甲': 'bundesliga', '德乙': 'bundesliga2', '意甲': 'seriea',
+                       '西甲': 'laliga', '法甲': 'ligue1', '荷甲': 'eredivisie',
+                       '葡超': 'portugal', '芬超': 'finland', '芬超冠': 'finland',
+                       '挪超': 'norway', '日职联': 'japan', '日职乙': 'japan',
+                       '韩K联': 'china', '中超': 'china', '欧冠': 'ec', '欧联': 'ec', '欧协联': 'ec'}
+        _lk = (league or '').strip()
+        _lk = _SLUG_ALIAS.get(_lk, _lk.lower().replace(' ', '').replace('-', ''))
+        if _lk in LEAGUE_VIG:
+            eu_vig = LEAGUE_VIG[_lk]
+            _basis = f'联赛查表({_lk})'
+        else:
+            eu_vig = None
+            _basis = ('无数据(该联赛未登记基准·原联赛名 %r)' % (league or ''))
+        # 🔴抽水标签: 序列若不独立于基线，则 vig 不是竞彩价 → 禁称「竞彩抽水」
+        _series_is_base = False
+        _baseline_sharp = False
+        _fresh_mins = None
+        _fresh_band = None
+        try:
+            _txt_all = open(sys.argv[1], encoding='utf-8').read()
+            _series_is_base = '反抽水比(F1) **不适用' in _txt_all
+            _baseline_sharp = '🔴基线性质：sharp' in _txt_all
+            _fm = re.search(r'距开赛\s*([\d.]+)\s*分钟\s*→\s*\S+?\s*｜\s*盘口联动\(V6\)[：:]\s*(\S+)', _txt_all)
+            if _fm:
+                _fresh_mins = float(_fm.group(1))
+                _fresh_band = ('LIVE' if _fresh_mins <= 90 else
+                               'SEMI' if _fresh_mins <= 180 else 'STALE')
+        except Exception:
+            pass
+        # 🔴2026-10-17(P1·V6 硬门): 盘口联动(V6) 的条文前提是「赛前 60-90 分钟临场」。
+        #   历史做法：无论数据多旧都照常给出 V6 相关字段/清单项，执行者在报告里
+        #   引用「V6 四象限 22.7 万场」时无从判断它到底成立与否。
+        #   现在改为硬门——新鲜度不足时**拒绝**产出 V6 结论，只输出三态行。
+        if _fresh_band is None:
+            print("  🔴盘口联动(V6): ⏭️ 不触发(原因: 输入未声明时点新鲜度·无临场证据)")
+        elif _fresh_band == 'STALE':
+            print("  🔴盘口联动(V6): 🚫 硬门拒绝 — 末点距开赛 %.0f 分钟(>180) → 非临场·"
+                  "V6 判定前提不成立" % _fresh_mins)
+            print("     ↳ 结论: V6 四象限/剪刀差/卡位/退盘 **一律不得引用**（不是「算了但不显著」，是「不成立」）")
+            print("     ↳ 若确需 V6，须重取赛前 60-90 分钟数据后重跑")
+        elif _fresh_band == 'SEMI':
+            print("  🔴盘口联动(V6): ⚠️ 弱门 — 末点距开赛 %.0f 分钟(90-180) → 次临场·"
+                  "仅可作弱参考·禁当强信号" % _fresh_mins)
+        else:
+            print("  🔴盘口联动(V6): ✅ 可判定 — 末点距开赛 %.0f 分钟(≤90) → 临场窗口成立"
+                  % _fresh_mins)
+        _vig_label = '基准价抽水(源:机构基线)' if _series_is_base else '竞彩抽水'
+        if eu_vig is None:
+            print(f"  {_vig_label} {vig*100:.2f}% · 欧盘基准{_basis} → 反抽水比 不适用(无基准)")
+        elif _baseline_sharp:
+            # 🔴LEAGUE_VIG 记的是**软盘**（竞彩/亚洲庄）基准抽水；
+            #   分子若是 Pinnacle 这类锐盘（实测 2.7-4.4%），两者不同源，
+            #   比值会稳定落在 0.4-0.7x 的假区间 —— 与「基线价分母」是同一类错误。
+            print(f"  {_vig_label} {vig*100:.2f}% · 欧盘基准联赛查表({_lk}) {eu_vig*100:.2f}% → "
+                  f"反抽水比 不适用(原因:分子=锐盘·分母=软盘基准·不同源)")
+        else:
+            _r = vig / eu_vig
+            _f1 = '' if _series_is_base else (" 🔴触发反抽水(>1.30)" if _r > 1.30 else "")
+            print(f"  {_vig_label} {vig*100:.2f}% · 欧盘基准{_basis} {eu_vig*100:.2f}% → 反抽水比 {_r:.2f}x{_f1}")
+            if _series_is_base:
+                print("     ↳ 🔴本文件无独立竞彩采价（序列=机构基线）→ 反抽水比(F1) **不适用**·"
+                      "上列比值仅作「基线价 / 联赛基准」参考·禁读作竞彩抽水")
         # 变动序列（逐T）
         if len(secs['spf']) > 1:
             first_ts, first_odds = secs['spf'][0]

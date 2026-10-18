@@ -132,8 +132,24 @@ def test_quarter_225_splits_20_and_25():
     assert abs(0.5 * ev20 + 0.5 * ev25) < 1e-3
 
 
+def test_deep_line_475_qatari_push_at_five():
+    """4.75 = 4.5 + 5.0（14场批拜仁 vs 莱比锡的真实主流线）。
+
+    走盘只出现在 5.0 半注（=5 球），4.5 半注无走盘。
+    """
+    sys.path.insert(0, TMP)
+    import ou_from_asia as M
+    w = 0.90
+    lam = M.solve_total_lambda(4.75, w, w)
+    assert lam is not None, "4.75 线应可解（深盘高进球场主流线）"
+    p5 = pois(lam, 5)
+    ev45 = p_ge(lam, 5) * w - (1 - p_ge(lam, 5))
+    ev50 = p_ge(lam, 6) * w + p5 * 0.0 - (1 - p_ge(lam, 6) - p5)
+    assert abs(0.5 * ev45 + 0.5 * ev50) < 1e-3, "4.75 线 EV 未归零"
+
+
 # ══════════ 4. 单调性：水分越高（赔付越大）→ λ 越低 ══════════
-@pytest.mark.parametrize("line", [2.25, 2.5, 2.75, 3.0, 3.25, 3.5])
+@pytest.mark.parametrize("line", [2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 4.25, 4.5, 4.75, 5.0])
 def test_monotonic_in_over_water(line):
     sys.path.insert(0, TMP)
     import ou_from_asia as M
@@ -168,9 +184,11 @@ def test_cli_json_output():
 
 def test_cli_rejects_unknown_line():
     """未覆盖的线型必须显式拒绝，不得静默给默认值。"""
+    # 🔴2026-10-17: 原用例拿 4.75 当「未覆盖线型」，但 14场批（拜仁 vs 莱比锡）
+    #   证明 4.75 是真实主流线，已登记进 LINES → 改用确实不存在的 9.25。
     r = subprocess.run(
         [sys.executable, os.path.join(TMP, 'ou_from_asia.py'),
-         '--line', '4.75', '--over', '0.90', '--under', '0.90'],
+         '--line', '9.25', '--over', '0.90', '--under', '0.90'],
         capture_output=True, text=True, encoding='utf-8', errors='replace',
         cwd=ROOT, timeout=120)
     combined = r.stdout + r.stderr

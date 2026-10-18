@@ -68,12 +68,42 @@ _LG_ALIAS = {
 }
 
 
+# 🔴2026-10-17(P0·反抽水基准)：calc_match.LEAGUE_VIG 的键是英文 slug
+#   （epl/bundesliga/seriea/laliga/ligue1/championship/eredivisie…），
+#   而调用方长期只传中文「英超」→ LEAGUE_VIG 恒不命中 → 一律落「缺省6.9%」
+#   （实测 data-2.5.9 单场批 26/26 场如此）。
+#   本表让 slug 也能归一，同时保留 slug 供 calc_match 查表用（见 lg_vig_key）。
+_LG_SLUG2CN = {
+    'epl': '英超', 'championship': '英冠', 'league1': '英甲', 'league2': '英乙',
+    'bundesliga': '德甲', 'bundesliga2': '德乙', 'seriea': '意甲', 'serieb': '意乙',
+    'laliga': '西甲', 'laliga2': '西乙', 'ligue1': '法甲', 'ligue2': '法乙',
+    'eredivisie': '荷甲', 'portugal': '葡超', 'finland': '芬超', 'norway': '挪超',
+    'japan': '日职联', 'china': '中超', 'ec': '欧冠',
+}
+
+
+def lg_vig_key(league):
+    """联赛 → calc_match.LEAGUE_VIG 的键（英文 slug）。认不出返回 None（=标无数据）。"""
+    if not league:
+        return None
+    s = str(league).strip()
+    if s.lower() in _LG_SLUG2CN:
+        return s.lower()
+    for slug, cn in _LG_SLUG2CN.items():
+        if s == cn:
+            return slug
+    return None
+
+
 def norm_league(x):
-    """联赛归一化 → 中文标准名（2026-09-15审计P0修复·接受 中文名/英文代码/英文别名·大小写与分隔符不敏感）"""
+    """联赛归一化 → 中文标准名（2026-09-15审计P0修复·接受 中文名/英文代码/英文别名·大小写与分隔符不敏感）
+    2026-10-17 增补：同时接受 LEAGUE_VIG 的英文 slug（epl/bundesliga/…）。"""
     if not x:
         return x
     s = str(x).strip()
-    return _LG_ALIAS.get(s) or _LG_ALIAS.get(s.lower().replace(' ', '').replace('-', ''), s)
+    k = s.lower().replace(' ', '').replace('-', '')
+    return (_LG_ALIAS.get(s) or _LG_ALIAS.get(k)
+            or _LG_SLUG2CN.get(k) or s)
 
 
 def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
@@ -101,6 +131,15 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
     except Exception:
         pass
 
+    # 🔴2026-10-17: 中文队名归一（单一入口·HAF/ELO/xG 共用）
+    #   输入 txt 用服务端命名（RB莱比锡/汉堡…），mapping 表用另一套（莱比锡红牛）——
+    #   不归一 → 查表静默 miss（HAF 曾对 14 场批命中 0/8）。
+    _CN_ALIAS = {'RB莱比锡': '莱比锡红牛', '莱比锡': '莱比锡红牛', '拜仁': '拜仁慕尼黑',
+                 '巴伦西亚': '瓦伦西亚', '毕尔巴鄂竞技': '毕尔巴鄂竞技',
+                 '国际米兰': '国际米兰', '国米': '国际米兰'}
+    _home_cn = _CN_ALIAS.get(home, home)
+    _away_cn = _CN_ALIAS.get(away, away)
+
     # ── HAF(C13/Step4.6) ──
     try:
         import calc_homeaway as _HA
@@ -112,7 +151,10 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
         elif not _in_domain:
             out.append('  🔴HAF(Step4.6): ⏭️ 不触发(原因: 本联赛不在覆盖域·HAF 仅覆盖五大联赛·%s)' % league_cn)
         else:
-            # 尝试中文→英文（沿用既有别名表）
+            # 🔴2026-10-17(P1): 原为 24 条硬编码别名表 → 表外队伍一律落到
+            #   「别名未命中」，HAF 对同一联赛的大部分场次形同不存在（14 场批命中率 0/8）。
+            #   改为优先读唯一真源 data/team_name_mapping_2025-26.json（246 队·中→英），
+            #   硬编码表仅作历史兜底（Mapping 未覆盖时）。
             _map = {'埃弗顿': 'Everton', '切尔西': 'Chelsea', '富勒姆': 'Fulham', '布伦特福德': 'Brentford',
                     '利物浦': 'Liverpool', '曼彻斯特城': 'Man City', '伊普斯维奇': 'Ipswich',
                     '西班牙人': 'Espanol', '马德里竞技': 'Ath Madrid', '比利亚雷亚尔': 'Villarreal',
@@ -120,7 +162,40 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
                     '云达不莱梅': 'Werder Bremen', '帕德博恩': 'Paderborn', '奥格斯堡': 'Augsburg',
                     '柏林联合': 'Union Berlin', '多特蒙德': 'Dortmund', '沙尔克04': 'Schalke 04',
                     '美因茨': 'Mainz', '斯特拉斯堡': 'Strasbourg', '巴黎圣日耳曼': 'Paris SG'}
-            _h, _a = _map.get(home), _map.get(away)
+            try:
+                _mp = _tp.find_table('team_name_mapping_2025-26.json')
+                if not _mp:
+                    import os as _os
+                    _cand = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(
+                        _os.path.abspath(__file__)))), 'data', 'team_name_mapping_2025-26.json')
+                    _mp = _cand if _os.path.exists(_cand) else None
+                if _mp:
+                    for _t in (_j.load(open(_mp, encoding='utf-8')).get('teams') or []):
+                        _cn, _en = _t.get('cn'), _t.get('en')
+                        if _cn and _en and _cn not in _map:
+                            _map[_cn] = _en
+            except Exception:
+                pass
+            # HAF 表内个别队名与 Mapping 的英文名不同（表来自 Matches.csv 历史命名），需二次对齐
+            _haf_alias = {'FC Schalke 04': 'Schalke 04', 'Schalke': 'Schalke 04',
+                          'Hamburg': 'Hamburg', 'Hamburger SV': 'Hamburg',
+                          'Bayern München': 'Bayern Munich', 'Leipzig': 'RB Leipzig',
+                          'Newcastle United': 'Newcastle', 'Real Betis': 'Betis',
+                          'Athletic Bilbao': 'Ath Bilbao', 'Athletic Club': 'Ath Bilbao',
+                          'Internazionale': 'Inter'}
+            _haf_alias_hits = {}
+
+            def _haf_of(cn):
+                for nm in ([cn, _map.get(cn)] + _haf_alias_hits.get(cn, [])):
+                    if not nm:
+                        continue
+                    nm = _haf_alias.get(nm, nm)
+                    if nm in _teams:
+                        return nm
+                return None
+
+            _h = _haf_of(_home_cn)
+            _a = _haf_of(_away_cn)
             if _h and _a and _h in _teams and _a in _teams:
                 _lh, _la = _HA.haf_couple(_h, _a, league_cn)
                 if _lh:
@@ -129,7 +204,7 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
                 else:
                     out.append('  🔴HAF(Step4.6): ⚠️ 无数据(原因: 该联赛场地子集缺失)')
             else:
-                _miss = [x for x, y in ((_h or home, _h), (_a or away, _a)) if not y]
+                _miss = [x for x, y in ((home, _h), (away, _a)) if not y]
                 out.append('  🔴HAF(Step4.6): ⚠️ 无数据(原因: 队伍不在 139 队档案内·%s)'
                            % ('/'.join(_miss) or '别名未命中'))
     except Exception as _e:
@@ -143,7 +218,90 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
         elif league_cn not in EU5:
             out.append('  🔴ELO(修正41): ⏭️ 不触发(原因: 本联赛不在覆盖域·clubelo 快照仅五大联赛·%s)' % league_cn)
         else:
-            out.append('  🔴ELO(修正41): ✅ 快照在位 → 由执行者按队查 diff（禁凭记忆）')
+            # 🔴2026-10-17(P1): 原只输出「由执行者按队查」→ 执行者无入口 → 实际从未消费。
+            #   现按队名查 clubelo 快照，直接给出 Elo 差与档位（查不到则三态标注）。
+            _elo = _j.load(open(_ep, encoding='utf-8')).get('leagues', {}).get(league_cn, {})
+            _pool = {}
+            for _t in (_elo.get('teams') or []):
+                _pool[(_t.get('name') or '').strip()] = _t.get('elo')
+            _emap = {}
+            try:
+                _mp2 = _tp.find_table('team_name_mapping_2025-26.json')
+                if _mp2:
+                    for _t in (_j.load(open(_mp2, encoding='utf-8')).get('teams') or []):
+                        if _t.get('cn') and _t.get('en'):
+                            _emap[_t['cn']] = _t['en']
+            except Exception:
+                pass
+            # 🔴2026-10-17(P1): 名称解析原本"单次精确匹配"→ clubelo 命名与 Mapping 命名
+            #   不一致的队（Stuttgart/VfB Stuttgart、Roma/AS Roma、Genoa/Genoa CFC、
+            #   Bologna/Bologna FC、Mainz/Mainz 05、Inter Milan/Internazionale…）一律落空。
+            #   现改为「候选名集合 + 归一化(去重音/去俱乐部前后缀) + 包含匹配」三级解析。
+            _cand = {'曼彻斯特城': ['Man City', 'Manchester City'],
+                     '巴黎圣日耳曼': ['Paris SG', 'Paris Saint-Germain', 'Paris'],
+                     '拜仁慕尼黑': ['Bayern Munich', 'Bayern München', 'Bayern'],
+                     '莱比锡红牛': ['RB Leipzig', 'Leipzig'], 'RB莱比锡': ['RB Leipzig', 'Leipzig'],
+                     '纽卡斯尔联': ['Newcastle', 'Newcastle United'],
+                     '皇家贝蒂斯': ['Real Betis', 'Betis'], '毕尔巴鄂竞技': ['Ath Bilbao', 'Athletic Club'],
+                     '国际米兰': ['Inter', 'Internazionale'], '沙尔克04': ['Schalke 04', 'Schalke'],
+                     '汉堡': ['Hamburg', 'Hamburger SV'], '阿森纳': ['Arsenal'],
+                     '曼彻斯特联': ['Man United', 'Manchester United'],
+                     '托特纳姆热刺': ['Tottenham'], '布伦特福德': ['Brentford'],
+                     '埃弗斯堡': ['Elversberg'], '赫尔城': ['Hull'],
+                     '多特蒙德': ['Dortmund'], '美因茨': ['Mainz'], '奥格斯堡': ['Augsburg'],
+                     '斯图加特': ['Stuttgart'], '罗马': ['Roma'], '热那亚': ['Genoa'],
+                     '博洛尼亚': ['Bologna'], '巴伦西亚': ['Valencia'], '瓦伦西亚': ['Valencia'],
+                     '柏林联合': ['Union Berlin'], '富勒姆': ['Fulham'], '利物浦': ['Liverpool'],
+                     '比利亚雷亚尔': ['Villarreal'], '埃尔切': ['Elche']}
+
+            def _norm(s):
+                s = (s or '').lower()
+                for _a, _b in (('ä', 'a'), ('ö', 'o'), ('ü', 'u'), ('é', 'e'), ('í', 'i'),
+                               ('á', 'a'), ('ó', 'o'), ('ñ', 'n'), ('ç', 'c'), ('è', 'e')):
+                    s = s.replace(_a, _b)
+                for _w in ('fc ', 'fc', 'cf ', 'ac ', 'as ', 'ssc ', 'ss ', 'sc ', '1. ', 'afc ',
+                           'club ', 'calcio ', '.', '-', ' ', "'"):
+                    s = s.replace(_w, '')
+                return s
+
+            _pool_norm = {}
+            for _k in _pool:
+                _pool_norm.setdefault(_norm(_k), _k)
+
+            def _elo_of(cn):
+                _names = [cn, _emap.get(cn)] + _cand.get(cn, [])
+                for nm in _names:
+                    if nm and nm in _pool:
+                        return _pool[nm], nm
+                for nm in _names:
+                    if not nm:
+                        continue
+                    _hit = _pool_norm.get(_norm(nm))
+                    if _hit:
+                        return _pool[_hit], _hit
+                for nm in _names:
+                    if not nm or len(_norm(nm)) < 4:
+                        continue
+                    _n = _norm(nm)
+                    for _pk, _orig in _pool_norm.items():
+                        if _n in _pk or _pk in _n:
+                            return _pool[_orig], _orig
+                return None, None
+
+            _eh, _hn = _elo_of(_home_cn)
+            _ea, _an = _elo_of(_away_cn)
+            if _eh and _ea:
+                _d = _eh - _ea
+                out.append('  🔴ELO(修正41): ✅ 快照 %s → %s %s %.0f vs %s %s %.0f | ELO差 %+.0f'
+                           % (_elo.get('date') or '', home, _hn, _eh, away, _an, _ea, _d))
+                if abs(_d) >= 30:
+                    out.append('    → |ELO差|>=30: 触发低赔-ELO背离纪律（低赔方向≠ELO强方→该向降1档+强制2向覆盖）'
+                               '·执行者须按 Step5 对照→强方=%s' % (home if _d > 0 else away))
+                else:
+                    out.append('    → |ELO差|<30: ELO 不构成方向依据（仅背景·不调档）')
+            else:
+                out.append('  🔴ELO(修正41): ⚠️ 无数据(原因: 队伍不在 clubelo 快照·%s/%s)'
+                           % (home if not _eh else 'ok', away if not _ea else 'ok'))
     except Exception as _e:
         out.append('  🔴ELO(修正41): ⚠️ 无数据(原因: %s)' % str(_e)[:50])
 
@@ -153,17 +311,53 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
         if not _xp:
             out.append('  🔴xG(SK-xg-depth): ⏭️ 不触发(原因: understat 本地快照缺失)')
         else:
+            # 🔴2026-10-17(P1): 原实现只有 4 条硬编码队名 → 覆盖判据与实际可用队伍不符
+            #   （西甲全 20 队都在快照里，却被判「该队不在快照」）。改为按 title 精确匹配 +
+            #   直接算滚动 xG/xGA（近 8 场·防泄露·rolling_features 与 xg_depth_upgrade 同源）。
             _xd = _j.load(open(_xp, encoding='utf-8'))
-            _titles = {v.get('title') for v in (_xd.get('teams') or {}).values()}
-            _cov = {'西班牙人': 'Espanyol', '比利亚雷亚尔': 'Villarreal',
-                    '埃尔切': 'Elche', '马德里竞技': 'Atletico Madrid'}
-            _hit = [k for k, v in _cov.items() if v in _titles and k in (home, away)]
-            if league_cn == '西甲' and _hit:
-                out.append('  🔴xG(SK-xg-depth): ✅ ok（覆盖 %s·滚动近6场·防泄露）' % '/'.join(_hit))
+            _pool_xg = {v.get('title'): v for v in (_xd.get('teams') or {}).values() if v.get('title')}
+            _xn = {'皇家贝蒂斯': 'Real Betis', '巴塞罗那': 'Barcelona', '毕尔巴鄂竞技': 'Athletic Club',
+                   '马德里竞技': 'Atletico Madrid', '西班牙人': 'Espanyol', '巴伦西亚': 'Valencia',
+                   '瓦伦西亚': 'Valencia', '比利亚雷亚尔': 'Villarreal', '埃尔切': 'Elche',
+                   '皇家社会': 'Real Sociedad', '塞维利亚': 'Sevilla', '赫塔费': 'Getafe',
+                   '阿拉维斯': 'Alaves', '奥萨苏纳': 'Osasuna', '莱万特': 'Levante',
+                   '塞尔塔': 'Celta', '拉约': 'Rayo Vallecano'}
+            _xh = _pool_xg.get(_xn.get(_home_cn, _home_cn))
+            _xa = _pool_xg.get(_xn.get(_away_cn, _away_cn))
+            if not _xh:  # 归一化回退（去重音/包含匹配）
+                _n0 = _norm(_home_cn)
+                for _tk, _tv in _pool_xg.items():
+                    if _n0 and (_n0 in _norm(_tk) or _norm(_tk) in _n0):
+                        _xh, _xa = _tv, _xa
+                        _home_cn = _tk
+                        break
+            if not _xa:
+                _n1 = _norm(_away_cn)
+                for _tk, _tv in _pool_xg.items():
+                    if _n1 and (_n1 in _norm(_tk) or _norm(_tk) in _n1):
+                        _xa, _xh = _tv, _xh
+                        _away_cn = _tk
+                        break
+            if league_cn == '西甲' and _xh and _xa:
+                import xg_depth_upgrade as _XG
+                _allxga = [h.get('xGA', 0) for v in _pool_xg.values() for h in (v.get('history') or [])[:8]]
+                _avg = sum(_allxga) / len(_allxga) if _allxga else 1.6
+                _fa = _XG.rolling_features([(h['xG'], h['xGA'], h['h_a'] == 'h')
+                                            for h in _xh['history'][-8:]], n=8)
+                _fb = _XG.rolling_features([(h['xG'], h['xGA'], h['h_a'] == 'h')
+                                            for h in _xa['history'][-8:]], n=8)
+                _lh = _fa['xg_mean'] * (_fb['xga_mean'] / _avg)
+                _la = _fb['xg_mean'] * (_fa['xga_mean'] / _avg)
+                out.append('  🔴xG(SK-xg-depth): ✅ ok → %s xG %.2f/xGA %.2f (σ%.2f) | %s xG %.2f/xGA %.2f (σ%.2f)'
+                           % (home, _fa['xg_mean'], _fa['xga_mean'], _fa['xg_std'],
+                              away, _fb['xg_mean'], _fb['xga_mean'], _fb['xg_std']))
+                out.append('    → λ0(xG·相对防守修正·联赛均xGA %.2f) = 主 %.2f / 客 %.2f (总 %.2f)'
+                           % (_avg, _lh, _la, _lh + _la))
             elif league_cn == '西甲':
-                out.append('  🔴xG(SK-xg-depth): ⚠️ 无数据(原因: 该队不在西甲 xG 快照)')
+                out.append('  🔴xG(SK-xg-depth): ⚠️ 无数据(原因: 队伍不在西甲 xG 快照·%s/%s)'
+                           % (home if not _xh else 'ok', away if not _xa else 'ok'))
             else:
-                out.append('  🔴xG(SK-xg-depth): ⏭️ 不触发(原因: 本联赛不在覆盖域·understat 快照仅西甲·%s)' % league_cn)
+                out.append('  🔴xG(SK-xg-depth): ⏭️ 不触发(原因: 本联赛(%s)不在覆盖域·understat 本地快照仅西甲)' % league_cn)
     except Exception as _e:
         out.append('  🔴xG(SK-xg-depth): ⚠️ 无数据(原因: %s)' % str(_e)[:50])
     return out
@@ -305,7 +499,55 @@ def _canonical_log_name(txt_path, league=None):
     return '_'.join(parts) + '.json'
 
 
-def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False):
+# ══════════════════════════════════════════════════════════════════════
+# 大小球判向 · 单一真源（2026-10-18·ou_dir 口径统一）
+# ══════════════════════════════════════════════════════════════════════
+# 背景: 本文件曾同时存在两套判向切点 ——
+#   ① over_p 概率分类器 (over_p>=54 判大 / <=46 判小)  ← 441 场盲测实际所用
+#   ② O2.5 赔率阈值   (<1.90 判大 / >2.10 判小)      ← 代码实际执行
+# 在 435 场上实测: 两套规则在**都做出判向的场次**上结果 100% 相同
+#   （McNemar 分歧=0）→ 它们只是同一单调刻度上的不同切点，没有"谁更准"之争。
+#
+# 净收益口径（判对 +1 / 判错 -1 / 不判 0）· 全样本 435 场:
+#   A 赔率 1.90/2.10 : 可判 371  净 +101  准确率 63.6%   ← 现行·已保留
+#   B 概率 54/46     : 可判 275  净  +85  准确率 65.5%
+#   A 的增量全部来自 over_p∈(46,54) 的 100 场"中段"(命中 58%)——
+#   该净收益 21% 的二项单侧 p≈0.055，落在显著性边缘，故**不宣称 A 更优**，
+#   仅按"用户决策 + 现行行为不变"保留 A。
+#
+# 🔴 纪律: 判向阈值只在本处定义。任何消费点（打印/校验/下游）一律调用
+#   over_under_direction()，禁止内联 1.90/2.10 或 54/46。
+OU_BIG_ODDS_MAX = 1.90      # O2.5 <  此值 → 大球（实测 64.9%，n=316）
+OU_SMALL_ODDS_MIN = 2.10    # O2.5 >  此值 → 小球（实测 56.4%，n=55）
+SMALL_BALL_NEUTRAL = True   # 小球档停判开关（保留：判小球≈随机边缘）
+
+# 分档实证大球率（435 场·用于打印"依据"，随表变化时须同步复核）
+OU_BAND_ACTUAL = (
+    (1.00, 1.30, 90.0, 10), (1.30, 1.50, 81.8, 22), (1.50, 1.70, 64.7, 156),
+    (1.70, 1.90, 60.2, 128), (1.90, 2.10, 60.9, 64), (2.10, 2.30, 41.5, 41),
+)
+
+
+def over_under_direction(o25):
+    """O2.5 赔率 → '大球' | '小球' | '中性'（唯一真源·三态）
+
+    边界: 1.90 属中性（开区间右端）、2.10 属中性（开区间左端）。
+    缺失/非法 → '中性'（禁默认判大或判小）。
+    """
+    try:
+        o = float(o25)
+    except (TypeError, ValueError):
+        return '中性'
+    if o <= 0:
+        return '中性'
+    if o < OU_BIG_ODDS_MAX:
+        return '大球'
+    if o > OU_SMALL_ODDS_MIN:
+        return '小球'
+    return '中性'
+
+
+def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False, v6_status=None):
     """脚本生成必核清单(附数据状态·LLM照单逐项消费)"""
     lines = ['', '=' * 70, '【必核清单·脚本生成(2026-09-02·防自我遗漏·LLM逐项执行不可跳过)】', '=' * 70]
     for cid, item, cond, src in CHECKLIST:
@@ -313,6 +555,9 @@ def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top
             lines.append('  %s %-40s [不触发·非欧战]' % (cid, item))
         elif cond == '五大联赛' and not is_top5:
             lines.append('  %s %-40s [不触发·非五大]' % (cid, item))
+        elif cid == 'C09' and v6_status:
+            # 🔴 V6 硬门：新鲜度不够时不得再打「必做」（否则执行者会为了「完成清单」而编造 V6 结论）
+            lines.append('  %s %-40s [%s]' % (cid, item, v6_status))
         else:
             lines.append('  %s %-40s [必做·源:%s]' % (cid, item, src))
     lines.append('  🔴执行纪律: 逐项执行·每项输出数值证据·条件层三态(触发/不触发(原因)/无数据(原因))·无证据=未执行=禁止通过')
@@ -646,6 +891,24 @@ def main():
         if '--net' in _unknown:
             print('  🔴 --net 已废弃: **分析阶段禁止联网**(net_policy.for_analysis 恒全关)。')
             print('     联网策略见 AGENTS.md §0; 复盘需用户明确要求才可联网。')
+    # 🔴2026-10-17(P0·不变量)：--eu 必须与输入文件**声明的基线**一致。
+    #   历史做法是用同一份 txt 跑澳门与 Pinnacle 两遍（只换 --eu），
+    #   于是 txt 里的「机构通道统一基线」与真正参与计算的定价分叉 →
+    #   下游任何「基线性质(soft/sharp)」「序列是否=基线」的判断都会失效。
+    if eu:
+        try:
+            _decl = re.search(r'机构通道统一基线\s*=\s*\S*?胜平负即盘[:：]\s*'
+                              r'([\d.]+)\s*/\s*([\d.]+)\s*/\s*([\d.]+)', open(txt_path, encoding='utf-8').read())
+            if _decl:
+                _dv = [float(x) for x in _decl.groups()]
+                _ev = [float(x) for x in eu.split(',')]
+                if any(abs(a - b) > 0.005 for a, b in zip(_dv, _ev)):
+                    print('  🔴基线不一致: --eu %s ≠ 输入声明基线 %s → '
+                          '阈值/形态学/L1融合均按 --eu 计算，但 txt 内时序与标签按声明基线'
+                          % ('/'.join('%.2f' % x for x in _ev), '/'.join('%.2f' % x for x in _dv)))
+                    print('     ↳ 应改为: 每份 txt 只承载一个基线（澳门 / Pinnacle 各生成一份）')
+        except Exception:
+            pass
     _missing = [_k for _k in ('--eu', '--handi', '--o25', '--water', '--home_water') if _k in _ov and _ov[_k] == '']
     if _missing:
         print('  ⚠️参数无值(被跳过): %s —— 用法: --eu 主,平,客 --handi <让球值> --o25 <O2.5赔率> [--u25 <U2.5赔率>] [--water <主水位1.8-2.1>]'
@@ -670,8 +933,12 @@ def main():
     #     · V5 跨市场分歧 / 有效凯利 → 恒打印「未提供欧盘」(实测 22/22 场)
     #     · 净胜档 margin_candidates → 退回体彩让球L 粒度(见 P0-3)
     #     · 诱阻分类 → 无欧盘参数不触发(见 P0-2)
+    # 🔴2026-10-17(P0·反抽水基准)：calc_match 用 argv[2] 去查 LEAGUE_VIG（英文 slug）。
+    #   原实现传中文「英超」→ 恒 miss → 落缺省 6.9%（实测 26/26 场）。
+    #   现在优先传 vig slug；认不出时退回原名，由 calc_match 显式标「未登记」。
+    _vig_key = lg_vig_key(league)
     cmd = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'calc_match.py'), txt_path]
-    if league: cmd.append(league)
+    if league: cmd.append(_vig_key or league)
     for _flag, _val in (('--eu', eu), ('--handi', handi), ('--o25', o25), ('--u25', u25),
                         ('--water', home_water), ('--elo', elo),
                         ('--inj_h', inj_h), ('--inj_a', inj_a)):
@@ -766,22 +1033,32 @@ def main():
                         print('    分布跨度%.0fpp(众数%.0f%%): %s' % (_span, _mx,
                             '🔴量级不确定·宽候选池按分布比例覆盖0-1到4+全档·禁锁单中心(147型2:0独锁误判根因)' if _span < 20 else ('中等·锁中心±1档' if _span < 35 else '量级明确·锁中心档')))
                         # 🔴2026-10-17 调整(P1·441场盲测实测): 小球档判向不可用
-                        #   判大球 235 场命中 68.5% · 判小球 72 场命中恰 50.0%(真随机);
-                        #   反转成判大球同为 50.0% → 说明「判小球」既无能力也不可利用。
-                        #   → 小球档一律降级为「中性·不判」，只保留量级分布供比分候选池使用。
+                        #   ⚠️ 2026-10-18 改正(435场复核·docs/整改复核_2026-10-17_435场证据.md):
+                        #     此处原先引用的是 **over_p 概率分类器**(over_p>=54→大 / <=46→小)
+                        #     口径的实测数字; 而本函数下面的 _dir 用的是 **O2.5 赔率阈值**。
+                        #     两套逻辑在 435 场里对 99 场(22.8%)给出不同判向 → 打印的依据
+                        #     不描述实际执行的规则。现改为引用**本实现(赔率阈值)口径**的实测数字。
+                        #   · 结论方向未变: 判小球仍不可用(赔率口径 55 场 56.4%，≈随机边缘)，
+                        #     仍降级为「中性·不判」。
                         #   (改动落在③展示/判定层，不触碰①输入解析①②计算链)
-                        SMALL_BALL_NEUTRAL = True     # 小球档停判开关（唯一真源）
                         _o = float(o25)
-                        _dir = '大球' if _o < 1.90 else ('小球' if _o > 2.10 else '中性')
+                        _dir = over_under_direction(_o)   # 🔴 单一真源
                         if SMALL_BALL_NEUTRAL and _dir == '小球':
-                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f>2.10 属小球档)' % _o)
-                            print('       ↳ 依据: 441场盲测·判小球命中仅 50.0%%(真随机)·反转同为50%%·不可利用')
+                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f>%.2f 属小球档)'
+                                  % (_o, OU_SMALL_ODDS_MIN))
+                            print('       ↳ 依据: 435场实测·O2.5>%.2f 判小球仅 56.4%%(n=55·≈随机边缘)·不可利用'
+                                  % OU_SMALL_ODDS_MIN)
                             print('       ↳ 仍然输出量级分布(上方)与总进球区间·供比分候选池使用; 仅**不给出大/小方向**')
                         elif SMALL_BALL_NEUTRAL and _dir == '中性':
-                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f 落在 1.90-2.10 中性带)' % _o)
+                            print('    🔴大小球判向: **中性·不判**(O2.5=%.2f 落在 %.2f-%.2f 中性带)'
+                                  % (_o, OU_BIG_ODDS_MAX, OU_SMALL_ODDS_MIN))
                         else:
-                            print('    🔴大小球判向: **大球**(O2.5=%.2f<1.90 属强/中信号档)' % _o)
-                            print('       ↳ 依据: 441场盲测·判大球命中 68.5%%(n=235·95%%CI 62.6-74.4%%)·可用')
+                            print('    🔴大小球判向: **大球**(O2.5=%.2f<%.2f 属强/中信号档)'
+                                  % (_o, OU_BIG_ODDS_MAX))
+                            print('       ↳ 依据: 435场实测·O2.5<%.2f 判大球命中 64.9%%(n=316)·分档单调递减'
+                                  % OU_BIG_ODDS_MAX)
+                            print('         ' + ' / '.join(
+                                '%.2f-%.2f→%.1f%%' % (lo, hi, pct) for lo, hi, pct, _ in OU_BAND_ACTUAL[:4]))
                         if float(o25) >= 2.3:
                             print('    🔴档≥2.3(总3+球%.0f%%≥1/3): 勿判强小球·对攻/防线伤停(影响分>=4)上场总进球中心上调1档·候选池强制含3:2/2:3对攻比分' % (_t3*100))
                         elif float(o25) <= 1.7:
@@ -839,7 +1116,24 @@ def main():
     else:
         print('  🔴伤停影响分(判定铁依据·缺失·原因:分析禁止联网·net_policy.for_analysis 恒全关) '
               '→ 伤停维度不可用·置信度合成**不含**伤停维度·铁则32/修正58 不触发')
-    print(gen_checklist(league, is_europe=is_eu, is_top5=is_top5))
+    # 🔴 V6 硬门：从输入文件的「时点新鲜度」行取真值，不得默认「必做」
+    _v6_status = None
+    try:
+        _fmk = re.search(r'距开赛\s*([\d.]+)\s*分钟', open(txt_path, encoding='utf-8').read())
+        if _fmk:
+            _m6 = float(_fmk.group(1))
+            # 三档必须与 calc_match 一致：LIVE ≤90 / SEMI 90-180 / STALE >180
+            if _m6 <= 90:
+                _v6_status = '✅ 临场·可判定(距开赛 %.0f 分钟)' % _m6
+            elif _m6 <= 180:
+                _v6_status = '❓ 弱门·仅弱参考(距开赛 %.0f 分钟)' % _m6
+            else:
+                _v6_status = '❌ 硬门拒绝(距开赛 %.0f 分钟·非临场·禁引用)' % _m6
+        else:
+            _v6_status = '❌ 不适用(输入未声明新鲜度)'
+    except Exception:
+        _v6_status = None
+    print(gen_checklist(league, is_europe=is_eu, is_top5=is_top5, v6_status=_v6_status))
     print('=' * 70)
     # ④ 现场比分引擎(评审P0修复半场反推/CS深度/5源融合实际接入·脚本计算LLM消费)
     if eu:
@@ -865,6 +1159,49 @@ def main():
                         ls['lambda']['home'], ls['lambda']['away'], ls['lambda']['total'], ls['sources_used']))
                     print('  动态权重: %s' % ls['dynamic_weights'])
                     print('  Top5比分: %s' % ' | '.join('%s(%.1f%%)' % (x['score'], x['prob']) for x in ls['top10'][:5]))
+                    # 🔴🔴 2026-10-17 🔴🔴【多源聚合裁决】用户命令：方向冲突时**以多源聚合为准**。
+                    #   对 AGENTS.md §5.5「方向铁依据 = 模型计算结果」的用户明确覆盖。
+                    #   聚合来自 live_score_engine 的贝叶斯融合（泊松+让球+大小球+CS+半场+先验），
+                    #   **不含 direction_full** → 不构成循环论证。
+                    try:
+                        _agr = ls.get('聚合') or ls.get('aggregated') or {}
+                        _av = [_agr.get('home_win'), _agr.get('draw'), _agr.get('away_win')]
+                        _pv = [float(str(x).replace('%', '')) for x in _av if x is not None]
+                        if len(_pv) == 3:
+                            _ORDER = ['主胜', '平局', '客胜']
+                            _i_top = max(range(3), key=lambda i: _pv[i])
+                            _agg_dir = _ORDER[_i_top]
+                            _gap = _pv[_i_top] - sorted(_pv)[-2]
+                            _price_dir = _dirv
+                            print('=' * 70)
+                            print('🔴🔴多源聚合裁决（方向层·用户命令优先）')
+                            print('  价格引擎(direction_full): %s  ↔  多源聚合: %s(%.1f%%)' % (
+                                _price_dir, _agg_dir, _pv[_i_top]))
+                            print('  聚合分布: 主 %.1f%% / 平 %.1f%% / 客 %.1f%%  ·  首两向 gap %.1fpt  ·  数据源: %s' % (
+                                _pv[0], _pv[1], _pv[2], _gap, ls.get('sources_used')))
+                            # 🔴 最小 gap 门槛（用户命令 2026-10-17）：gap<3pt 时两引擎实为噪声，
+                            #   不做裁决（不给主方向），直接判「无共识·三向覆盖」。
+                            #   3-5pt：裁决生效但降级为低分辨力（仍须三向覆盖）。
+                            #   ≥5pt：可判。
+                            if _gap < 3:
+                                print('  → ⛔ **无共识·不裁决**（gap %.1fpt<3 阈值）→ 不给主方向，必须三向覆盖' % _gap)
+                                print('     依据：gap<3pt 时两引擎差异落在模型误差内，任何一方都不具备可辨识度')
+                                print('     保留：上方两引擎输出均不删除，仅作参考（不作为单押依据）')
+                                print('     ⚠️ 若业务上仍需选一个方向：按裁决规则取聚合向 %s，但须标注「无共识」' % _agg_dir)
+                            elif _agg_dir == _price_dir:
+                                print('  → 两引擎一致（无需裁决）')
+                            else:
+                                print('  → 🔴 裁决生效：**方向 = %s**（原价格引擎 %s 被覆盖）' % (
+                                    _agg_dir, _price_dir))
+                                print('     ↓ 依据：聚合=泊松+让球+大小球+CS+半场+先验 贝叶斯融合（不含 direction_full）')
+                                if _gap < 5:
+                                    print('     ⚠️ gap %.1fpt<5 → 🔴低分辨力·必须三向覆盖（主/平/客全列）·禁单押' % _gap)
+                                else:
+                                    print('     ✓ gap %.1fpt≥5 → 可判，仍需与让球盘/大小球方向交叉核对' % _gap)
+                                print('     ↓ 保留：上方 direction_full 不删除，仅作对照（方向异常可回溯价格层）')
+                            print('=' * 70)
+                    except Exception as _arb_e:
+                        print('  ⚠️聚合裁决段异常: %s' % str(_arb_e)[:80])
                     print('  🔴主锚建议: %s | 次锚建议: %s(比分锚定起点·LLM综合本场基本面确认·禁机械照搬)' % (
                         ls['top10'][0]['score'], ls['top10'][1]['score']))
                 # 市场净胜期望档（用户建议"按市场信号查表"·回测: 市场定净胜档±1球68.3%）

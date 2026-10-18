@@ -176,25 +176,102 @@ def _cur_line():
         return ''
 
 
-# 🔴公开版是**精简 edition**：AGENTS.md 仅 5.6KB（完整版 20KB+），
-#   完整版里 30+ 个长尾小节（备份铁则/欧战六项核查表/负载缓解…）不复存在。
-#   这些条目的正确状态是 SKIP「公开版精简版未收录」——不是 FAIL。
+# ══════════════════════════════════════════════════════════════
+# 🔴精简版豁免机制（2026-10-17 加固）
+# ══════════════════════════════════════════════════════════════
+# 原实现用**启发式猜测**判定精简版（AGENTS.md 缺任一标志小节 → 判为 lite）。
+# 实测盲区: 从 AGENTS.md 删掉公开版**本应存在**的核心铁律「弱共识」后，
+#   校验器输出「SKIP: 公开精简版未收录该小节」，FAIL=0 退出码 0 —— 规则丢失被静默吞掉。
+#
+# 现改为两段式：
+#   ① edition 标记显式声明版本类型（AGENTS.md 顶部 `<!-- edition: lite -->`）
+#   ② 豁免走**白名单**：只有下列「完整版专属小节」缺失才允许 SKIP，
+#      白名单外的任何缺失一律 FAIL。
+#
+# 🔴维护纪律: 新增豁免项必须同时满足——
+#   (a) 该小节确实只存在于完整版 AGENTS.md；
+#   (b) 在下方 _LITE_EXEMPT 登记。禁为「让校验变绿」而加白名单。
+_LITE_EXEMPT = frozenset((
+    # 完整版 AGENTS.md 独有的长尾小节（公开版 216 行 / 10.3KB 未收录）
+    '备份铁则', '欧战六项核查表', '负载缓解', '必核层', '分析完整性铁律',
+    '预算红线豁免铁律', 'Skill 清单×接入点映射表', '修正53', '修正54-58',
+    '批末压缩', '数据源主从', '半场胜平负', 'R20平局温度计',
+    '量级台账', '35特征增强', '门禁/融合监测', 'CBR案例库',
+    '锚-量级一致性铁律', '八场复盘三铁律', '锚-六项一致性校验', '市场源优先铁律',
+    '迁移文档', '融合分档', 'L2增量表', 'PreStepV2', 'PreStep比分回测',
+    'VPN默认已开', '历史频率参考', '旧模型优点', '大小球信号强度三档',
+    '偏差校准', '案例库统一模板', '只买串关', '投注方案触发词',
+    'L1 在线ML', '规则冲突已标注', '现场动态比分', '禁机械锚定铁律',
+    '欧战模块指引', '数据源成功路径固化表', 'api-football禁league',
+    'clubelo脚本通道', 'txt 通用归一化层', 'txt_normalize', '审计入口',
+    'AGENTS 含 Step3.5', 'AGENTS 含 Skill 映射表节',
+    '学习接入消费规则', '锚可信度分级铁律', 'market_matrix',
+    # 2026-10-17 白名单收紧后暴露的漏项（均为完整版小节全称，公开版只有部分词）
+    '主客场因子层', '防过拟合/降噪记录',
+    # 注:「弱共识场平局并列铁律」是**完整版小节全称**，公开版只有「弱共识门限单一真源」
+    #    这条不同规则的表述 → 该条缺失属正常豁免，不列入盲区范围。
+    '弱共识场平局并列铁律',
+    'txt通用归一化层', 'SK-model-maintenance注册', 'SK-audit注册',
+    'raw第八节执行留痕', 'goal_bin_probs(O1',
+    'SL-betting-plan skill存在', '投注生成器三处引用', '案例库',
+))
+# 🔴AGENTS.md §5「硬性计算纪律」基线清单（发布契约）。
+#   新增纪律必须同步登记此处；删改纪律会被「无纪律被删除」检查抓到。
+AGENTS_DISCIPLINES = (
+    '代理不做算术', '查表禁凭记忆', '三态标注', '比分命中口径',
+    '方向铁依据 = 模型计算结果', '置信度只调不反转',
+    '净胜档依据 = 亚盘线', 'O2.5 禁手工推导',
+    '锚由模型在约束内自行取', 'HAF 用乘性耦合',
+    '弱共识门限单一真源', '跨机构分歧自动解析',
+)
+
 _LITE_EDITION = None
+_EDITION_RAW = None
+
+
+def _edition():
+    """读取 AGENTS.md 顶部的 `<!-- edition: xxx -->` 声明。
+
+    返回 'lite' / 'full' / None（未声明）。未声明时退回启发式判定并**告警**。
+    """
+    global _EDITION_RAW
+    if _EDITION_RAW is not None:
+        return _EDITION_RAW
+    txt = ''
+    try:
+        txt = _BUILTIN_OPEN(resolve('AGENTS.md'), encoding='utf-8').read()
+    except Exception:
+        txt = ''
+    m = re.search(r'<!--\s*edition:\s*(\w+)\s*-->', txt)
+    _EDITION_RAW = (m.group(1).lower() if m else None)
+    return _EDITION_RAW
 
 
 def _is_lite():
-    """AGENTS.md 是否为公开精简版（按体量与标志性小节判定）。"""
+    """是否按精简版处理豁免。优先读 edition 标记，未声明则退回启发式。"""
     global _LITE_EDITION
-    if _LITE_EDITION is None:
+    if _LITE_EDITION is not None:
+        return _LITE_EDITION
+    ed = _edition()
+    if ed == 'lite':
+        _LITE_EDITION = True
+    elif ed == 'full':
+        _LITE_EDITION = False
+    else:
+        # 未声明 edition —— 退回启发式，并在输出里告警（促使用户补标记）
         try:
             txt = _BUILTIN_OPEN(resolve('AGENTS.md'), encoding='utf-8').read()
         except Exception:
             txt = ''
-        # 完整版标志：任一存在即视为完整版
-        marks = ('备份铁则', '欧战六项核查表', '负载缓解', '必核层',
-                 '分析完整性铁律', '修正54-58', '数据源主从')
+        marks = ('备份铁则', '欧战六项核查表', '负载缓解', '必核层')
         _LITE_EDITION = bool(txt) and not any(m in txt for m in marks)
+        WARN.append('AGENTS.md 未声明 edition 标记，精简版判定退回启发式（建议补 <!-- edition: lite -->）')
     return _LITE_EDITION
+
+
+def _is_exempt(msg):
+    """该条 SKIP 是否属于「完整版专属小节」白名单。"""
+    return any(k in msg for k in _LITE_EXEMPT)
 
 
 def _doc_only_line(line):
@@ -221,10 +298,11 @@ def chk(cond, msg, level=FAIL, doc_only=False):
         print(f"  ⏭️ {msg}  [SKIP: 公开版未分发 → {_CUR_MISSING}]")
         _CUR_MISSING = None
         return
-    # ② 精简版未收录：仅当本条是对文档内容的检查（doc_only）
-    if not cond and doc_only and _is_lite():
+    # ② 精简版未收录：⭐必须同时满足「是文档检查」+「在白名单内」
+    #    白名单外的缺失一律落到下面走 FAIL —— 这是封堵「规则被误删」盲区的关键。
+    if not cond and doc_only and _is_lite() and _is_exempt(msg):
         SKIP.append(msg)
-        print(f"  ⏭️ {msg}  [SKIP: 公开精简版未收录该小节]")
+        print(f"  ⏭️ {msg}  [SKIP: 公开精简版未收录该小节（白名单内）]")
         _CUR_MISSING = None
         return
     line = _cur_line() if not cond else ''
@@ -236,9 +314,9 @@ def chk(cond, msg, level=FAIL, doc_only=False):
         return
     # ③ 🔴精简版内容检查兜底: 判据只读 AGENTS.md / skill 文本，而公开版是精简版，
     #   完整版的长尾小节本就不存在 → SKIP。
-    if not cond and _is_lite() and _doc_only_line(line):
+    if not cond and _is_lite() and _doc_only_line(line) and _is_exempt(msg):
         SKIP.append(msg)
-        print(f"  ⏭️ {msg}  [SKIP: 公开精简版未收录该小节]")
+        print(f"  ⏭️ {msg}  [SKIP: 公开精简版未收录该小节（白名单内）]")
         _CUR_MISSING = None
         return
     # ④ 🔴统一兜底：判据引用的路径在公开版不存在 → SKIP（而非 FAIL）。
@@ -375,6 +453,30 @@ print("\n⑥ 关键铁律存在性（AGENTS.md）")
 # 🔴doc_only=True: 这些是「完整版 AGENTS 的小节」，公开精简版本就不收录 → SKIP 而非 FAIL
 for kw in ['备份铁则','比分命中口径','欧战六项核查表','负载缓解','必核层','分析完整性铁律','预算红线豁免铁律','Skill 清单×接入点映射表','修正53','修正54-58','批末压缩','数据源主从','半场胜平负','R20平局温度计','draw_table','Step4.6','主客场因子层','homeaway_table']:
     chk(kw in agents, f"含「{kw}」", doc_only=True)
+# 🔴2026-10-17 新增: AGENTS §5「硬性计算纪律」逐条存在性校验。
+#   此前 check_sync 只抽查 24 个散装关键词，**从未覆盖 §5 的 12 条纪律** ——
+#   实测删掉「弱共识门限单一真源」「跨机构分歧自动解析」后仍全绿，规则丢失无法发现。
+#   现解析 §5 每条纪律名逐条校验：新增纪律未登记/被误删 → FAIL。
+try:
+    _ag_txt = open("AGENTS.md", encoding="utf-8").read()
+    # 🔴必须用**基线清单**校验，不能「从当前文件解析名字再回查当前文件」——
+    #   那是自证循环: 改掉一个纪律名后，解析结果也跟着变，永远对得上。
+    #   基线清单是发布时的契约；AGENTS 新增纪律须同步登记此处，否则 FAIL。
+    _disc_expected = list(AGENTS_DISCIPLINES)
+    # 反向检查: 文件里出现基线之外的编号纪律 → 说明有纪律未登记（防止悄悄新增后无人校验）
+    _disc_found = re.findall(r"^\d+\. 🔴 \*\*([^*]+)\*\*", _ag_txt, re.M)
+    print("\n⑥.5 AGENTS §5 硬性纪律逐条(基线 %d 条)" % len(_disc_expected))
+    for _d in _disc_expected:
+        chk(_d in _ag_txt, "AGENTS §5 纪律在位: %s" % _d)
+    _unregistered = [d for d in _disc_found if d not in _disc_expected]
+    chk(not _unregistered,
+        "AGENTS §5 无未登记纪律" + (("（未登记: %s）" % _unregistered) if _unregistered else ""))
+    _removed = [d for d in _disc_expected if d not in _disc_found]
+    chk(not _removed,
+        "AGENTS §5 无纪律被删除" + (("（缺失: %s）" % _removed) if _removed else ""))
+except Exception as _e_d:
+    chk(False, "AGENTS §5 纪律校验失败: %s" % str(_e_d)[:60])
+
 chk(os.path.exists("data/case-library/量级台账.csv") and "量级台账" in open("AGENTS.md", encoding="utf-8").read(), "量级台账(不确定度管理闭环·复盘对账)")
 chk(os.path.exists("data/tmp/deep_anchor_table.json") and "deep_anchor_table" in open(".reasonix/skills/SK-v3572-rules/SKILL.md", encoding="utf-8").read(), "深盘锚表(档×让深·禁机械3:0+4:0模板)")
 _ca = open("scripts/tmp/calc_all.py", encoding="utf-8").read()

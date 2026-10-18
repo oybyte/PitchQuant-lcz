@@ -4,8 +4,8 @@
 
 ### 足球赔率分析模型 · Public Release v1.2 ｜ Core Model V3.5.76
 
-> ### 🎯 A football-odds pipeline where the LLM **executes** a 238-check auditable workflow — and every weight is **earned from 227k-match backtests**.
-> ### 🎯 一条由 **238 道校验**锁定的 LLM 分析流水线 —— 每一个权重都来自 **22.7 万场回测**。
+> ### 🎯 A football-odds pipeline where the LLM **executes** a 252-check auditable workflow — and every weight is **earned from 227k-match backtests**.
+> ### 🎯 一条由 **252 道校验**锁定的 LLM 分析流水线 —— 每一个权重都来自 **22.7 万场回测**。
 
 **Pitch**（绿茵场）× **Quant**（量化）—— 用量化研究的方式对待足球数据，但始终记得：**足球是混沌的，市场是高效的**。
 
@@ -15,7 +15,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Skills](https://img.shields.io/badge/Skills-36-green)
 ![Scripts](https://img.shields.io/badge/Scripts-143-yellow)
-![Auto--Checks](https://img.shields.io/badge/Auto--Checks-238-orange)
+![Auto--Checks](https://img.shields.io/badge/Auto--Checks-252-orange)
 ![Backtest](https://img.shields.io/badge/Backtest-227k%20matches-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -43,7 +43,7 @@ Most "AI prediction" projects treat the LLM as an **oracle**: feed it data, ask 
 
 ```
 Traditional:   Data ──▶ LLM ──▶ "Prediction"        (black box · unreproducible)
-PitchQuant:    Data ──▶ Scripts (math) ──▶ Checklist ──▶ LLM (judgement) ──▶ Gates (238 checks) ──▶ Archive
+PitchQuant:    Data ──▶ Scripts (math) ──▶ Checklist ──▶ LLM (judgement) ──▶ Gates (252 checks) ──▶ Archive
                         ▲ deterministic                 ▲ constrained            ▲ enforced
 ```
 
@@ -71,7 +71,7 @@ Score Top-5:  1:1 13.9% (main) │ 0:0 8.6% (secondary) │ 2:1 8.3% │ 1:2 8.1
 | Who judges | The LLM, freely | The LLM, **constrained** by a generated checklist + rule hierarchy |
 | Reproducibility | Non-deterministic | **Deterministic core** — same input ⇒ same numbers |
 | Auditability | None | **Every analysis archived** with 8 sections + evidence trail |
-| Failure mode | Silent hallucination | **Compile-time failure** (238 automated checks) |
+| Failure mode | Silent hallucination | **Compile-time failure** (252 automated checks) |
 | Self-correction | Rare | **Built-in falsification gates** (backtest + significance + rollback) |
 
 ### 🧰 Tech Stack & Keywords
@@ -80,7 +80,7 @@ Score Top-5:  1:1 13.9% (main) │ 0:0 8.6% (secondary) │ 2:1 8.3% │ 1:2 8.1
 |:--|:--|
 | **Statistics** | **Poisson distribution** modelling · **Dixon-Coles** low-score correction (ρ=−0.12) · **de-vigging** (proportional + calibration-table) · **Kelly criterion** · **time-split backtesting** · probability calibration curves |
 | **Markets** | **Asian handicap** (spread + water level) · Over/Under totals · correct-score (CS) matrices · BTTS · half-time/full-time · **odds-movement morphology** (drift classification) · **cross-bookmaker divergence** (inter-book price spread as a sharp-money proxy) |
-| **Engineering** | deterministic Python core · **LLM orchestration** (runtime, not oracle) · script-generated checklists · **238 automated consistency checks** · anti-overfitting gates · tri-state evidence tagging · reproducible archives |
+| **Engineering** | deterministic Python core · **LLM orchestration** (runtime, not oracle) · script-generated checklists · **252 automated consistency checks** · anti-overfitting gates · tri-state evidence tagging · reproducible archives |
 | **Data sources** | odds-api (European markets) · api-football (official predictions / injuries) · ClubElo (ELO) · Understat (xG) · Chinese Sports Lottery official public odds · **multi-bookmaker price feed** (the-odds-api, **21 books** · cross-book divergence) · **international / Nations League** historical fixtures |
 
 ## What Makes It Different
@@ -127,7 +127,7 @@ Score Top-5:  1:1 13.9% (main) │ 0:0 8.6% (secondary) │ 2:1 8.3% │ 1:2 8.1
 │  GATES        ① calc_all   → precompute + generated checklist        │
 │               ② output_checker → 35 required blocks                  │
 │               ③ check_luopan   → archive structure & trace           │
-│               ④ check_sync     → 238 consistency checks              │
+│               ④ check_sync     → 252 consistency checks              │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -279,7 +279,8 @@ Research/engineering use only. Long-term EV is negative. Comply with local laws 
 | **Input required** | Manual plain-text odds file (Chinese lottery format) — no auto-scraping |
 | **Backtest size** | 227k league matches + 1,174 European fixtures |
 | **No guarantee** | Historical backtest results are methodology validation only, not future performance promises |
-| **Self-check** | `check_sync.py` runs on the public release: 238 checks → **161 pass / 0 fail / 77 skipped**. Skips are explicit — private datasets (`Matches.csv`, `europe/`, `case-library/`) and long-tail sections only the full edition's AGENTS.md carries. Each skip prints its reason and path; exit code is 0 when nothing fails |
+| **Self-check** | `check_sync.py` on the public release: **252 checks → 180 pass / 0 fail / 72 skipped** (read live from the script's own summary line; do not hand-edit this number). Skipped means *not present in the public edition*, never *failed*. |
+| **Check-count scope** | The 252 figure is `check_sync.py` **only**. `output_checker.py` adds 35 required blocks — they are **separate gates**, not to be summed into a single headline number |
 | **Offline-first** | Analysis/prediction runs **fully offline** (`net_policy.for_analysis()`, no override); review is offline by default and only goes online on explicit user request. No API key is ever bundled |
 | **Calibration** | `data/tmp/prob_calibration.json` — rebuilt from a 441-match blind test. ⚠️ n=441 (MC RMSE ≈5.3 pp): establishes the *direction* of favourite undervaluation, not a trustworthy magnitude |
 
@@ -295,7 +296,7 @@ Research/engineering use only. Long-term EV is negative. Comply with local laws 
 
 ```
 传统做法:   数据 ──▶ 大模型 ──▶ "预测结果"        （黑盒 · 不可复现）
-PitchQuant: 数据 ──▶ 脚本(算) ──▶ 必核清单 ──▶ 大模型(判) ──▶ 四道门(238校验) ──▶ 存档
+PitchQuant: 数据 ──▶ 脚本(算) ──▶ 必核清单 ──▶ 大模型(判) ──▶ 四道门(252校验) ──▶ 存档
                      ▲ 确定性              ▲ 受约束          ▲ 强制执行
 ```
 
@@ -323,7 +324,7 @@ $ python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1
 | 谁来判 | 大模型，自由发挥 | 大模型，**受生成清单 + 规则层级约束** |
 | 可复现性 | 非确定性 | **确定性内核** —— 同输入 ⇒ 同数字 |
 | 可审计性 | 无 | **每场分析全量存档**（八节 + 证据链） |
-| 失效模式 | 静默幻觉 | **编译期失败**（238 条自动校验） |
+| 失效模式 | 静默幻觉 | **编译期失败**（252 条自动校验） |
 | 自我修正 | 罕见 | **内建证伪门禁**（回测 + 显著性 + 自动回滚） |
 
 ### 🧰 技术栈与关键词
@@ -332,7 +333,7 @@ $ python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1
 |:--|:--|
 | **统计学** | **泊松分布**建模 · **Dixon-Coles** 低比分修正（ρ=−0.12）· **去水**（等比例 + 校准表）· **凯利公式** · **时间分割回测** · 概率校准曲线 |
 | **盘口市场** | **亚盘让球/水位** · 大小球 · 比分盘矩阵 · BTTS · 半全场 · **赔率变动形态学**（漂移形态分类） |
-| **工程** | 确定性 Python 内核 · **LLM 编排**（运行时而非预言机）· 脚本生成必核清单 · **238 条自动一致性校验** · 防过拟合门禁 · 三态证据标注 · 可复现存档 |
+| **工程** | 确定性 Python 内核 · **LLM 编排**（运行时而非预言机）· 脚本生成必核清单 · **252 条自动一致性校验** · 防过拟合门禁 · 三态证据标注 · 可复现存档 |
 | **资金流** | **跨机构分歧**（机构间价差 = sharp 资金代理）· sharp 基准 · 反向线移动（RLM）· 抽水（vig）诊断 |
 | **国际赛事** | **欧国联子模型**（658 场/四届）· ELO 档实测分布 · 公平赔率模型 · 客队热门平局泄漏 |
 | **数据源** | odds-api（欧盘）· api-football（官方概率/伤停）· ClubElo（ELO）· Understat（xG）· 中国体育彩票官方公开赔率 · **多机构赔率源**（the-odds-api · **21 家机构** · 跨机构分歧）· **国际赛事 / 欧国联**历史数据 |
@@ -378,7 +379,7 @@ $ python scripts/tmp/calc_poisson.py --home 2.50 --draw 3.40 --away 2.80 --o25 1
 │  质量门    ① calc_all   → 预计算 + 生成必核清单                         │
 │            ② output_checker → 35 个必填块                               │
 │            ③ check_luopan   → 存档结构与留痕                            │
-│            ④ check_sync     → 238 条一致性校验                          │
+│            ④ check_sync     → 252 条一致性校验                          │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -531,7 +532,8 @@ PitchQuant/
 | **输入方式** | 手动准备纯文本赔率文件（竞彩格式），不自动抓取 |
 | **回测规模** | 联赛 22.7 万场 + 欧战 1,174 场 |
 | **不保证收益** | 历史回测数字仅验证方法论，不代表未来表现 |
-| **自检** | `check_sync.py` 公开版可直接运行：238 条 → **通过 161 / 失败 0 / 跳过 77**。跳过项均显式注明原因与路径（私有数据集 `Matches.csv`、`europe/`、`case-library/`，以及仅完整版 AGENTS.md 才有的长尾小节）；无失败时退出码为 0 |
+| **自检** | `check_sync.py` 公开版可直接运行：**252 条 → 通过 180 / 失败 0 / 跳过 72**（数字取自脚本自身的总结果行，禁手改）。跳过=公开版未提供，**不等于失败** |
+| **校验数口径** | 252 仅指 `check_sync.py`；`output_checker.py` 另有 35 个必填块，属**独立门禁**，二者不加总 |
 | **离线优先** | 分析/预测**全程离线**（`net_policy.for_analysis()`，不可绕过）；复盘默认离线，仅用户明确要求时才联网。仓库不含任何 api key |
 | **校准表** | `data/tmp/prob_calibration.json` —— 由 441 场盲测重建。⚠️ n=441（蒙特卡洛 RMSE ≈5.3pp）：只确立「热门被低估」的*方向*，幅度尚不可信 |
 
