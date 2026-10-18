@@ -212,19 +212,36 @@ def main():
             if not _cp:
                 raise FileNotFoundError('prob_calibration.json 未找到 — 应位于 data/tmp/')
             calib = json.load(open(_cp, encoding='utf-8'))
-            ph = prob.get('胜', 0)
+            # 🔴 2026-10-18 修正（两层问题）：
+            #   ① 原实现只对「主胜」查表 → 客胜为热门时校准对象错位；
+            #   ② 计算出的 adj 从未真正应用（原代码 ph = _ph 原样赋值）
+            #      → 校准行只是显示，概率链/凯利/λ 全部未受影响。
+            #   现同时修正：作用于最高隐含方向，且真正写入 prob。
+            _prob_raw = dict(prob)  # U0001f534 未校准副本：skew 必须用原始去水比（实测 150%% 边界用例被污染成 176%%）
+            _top_dir = max(prob, key=prob.get)
+            _top_p = prob[_top_dir]
             adj = 0
             for k, v in calib.items():
                 lo, hi = float(k.split('-')[0]), float(k.split('-')[1])
-                if lo <= ph < hi: adj = v['bias_pp'] / 100; break
-            print(f"  🔴校准后主胜概率(P0-1): {ph*100:.1f}% + {adj*100:+.1f}pp = {(ph+adj)*100:.1f}% (prob_calibration.json·热门低估·用于凯利/λ反推)")
+                if lo <= _top_p < hi:
+                    adj = v['bias_pp'] / 100
+                    break
+            _p_before = _top_p
+            if adj:
+                prob = dict(prob)
+                prob[_top_dir] = max(_top_p + adj, 0.01)
+                _t = sum(prob.values())
+                prob = {k: v / _t for k, v in prob.items()}
+            print(f"  🔴校准后热门方向({_top_dir})概率: {_p_before*100:.1f}% + {adj*100:+.1f}pp = "
+                  f"{(_p_before+adj)*100:.1f}% → 归一后 {prob[_top_dir]*100:.1f}% "
+                  f"(prob_calibration.json·热门低估·已写入去水概率·供凯利/λ反推)")
         except Exception:
             print(f"  🔴提示: 等比例去抽水未校准「赔率理解修正」(深盘热门隐含55-85%实际命中率+2.4~3.3pp·市场低估热门)·方向判定以联赛档位实际概率为主·隐含仅作资金流/背离参考")
         # 方向差距分级（最大两方向差距）+ 🔴skew精确计算
         # 🔴2026-09-15 修复(Bug5): skew 取「实际消费的赔率来源」——传 --eu 时以欧盘为准, 否则竞彩 txt。
         # 原实现恒用竞彩 → 同一场 竞彩 150%(判高共识·可单押) vs 欧盘 133%(弱共识·必须并列),
         # 分档随来源翻转, 与 Step5 实际消费的欧盘不一致。
-        _sk_prob, _sk_src = prob, '竞彩txt'
+        _sk_prob, _sk_src = _prob_raw, '竞彩txt'
         if eu_odds:
             try:
                 _eo = [float(x) for x in eu_odds.split(',')]
@@ -233,7 +250,7 @@ def main():
                     _tt = sum(_iv.values())
                     _sk_prob, _sk_src = {k: v / _tt for k, v in _iv.items()}, '欧盘--eu'
             except Exception:
-                _sk_prob, _sk_src = prob, '竞彩txt'
+                    _sk_prob, _sk_src = _prob_raw, '竞彩txt'
         probs_sorted = sorted(_sk_prob.values(), reverse=True)
         if len(probs_sorted) >= 2:
             gap = (probs_sorted[0] - probs_sorted[1]) * 100
@@ -251,7 +268,27 @@ def main():
                      '温和共识(100-%g%%)' % WEAK_SKEW_PCT if _weak else
                      '高共识(%g-%g%%)' % (WEAK_SKEW_PCT, STRONG_SKEW_PCT) if not _strong
                      else '极端(≥%g%%)' % STRONG_SKEW_PCT)
-            print(f"  🔴skew精确计算: {probs_sorted[0]*100:.1f}/{probs_sorted[1]*100:.1f} = {skew:.0f}% → {sklvl} (来源:{_sk_src}·修正32判定依据·禁手算)")
+            # 🔴 2026-10-18 口径澄清：本行 skew 是**未校准的去水比**（反映市场原始共识度）。
+            #   铁胆档的 skew 来自 direction_full，那里**已过 prob_calibration**（热门低估修正）。
+            #   两者都对，但同名不同口径 → 实测拜仁 775% vs 805%，读者会以为有一个错了。
+            #   现同行标注两个口径。
+            _cal_skew = None
+            try:
+                _names = list(_sk_prob.keys())
+                _vals = list(_sk_prob.values())
+                _ih = _vals.index(max(_vals))
+                _adjv = locals().get('adj', 0) or 0
+                if _names[_ih] in ('胜', '主', 'H') and _adjv:
+                    _pv = list(_vals)
+                    _pv[_ih] = _pv[_ih] + _adjv
+                    _t2 = sum(_pv)
+                    _pv = [x / _t2 for x in _pv]
+                    _ps = sorted(_pv, reverse=True)
+                    _cal_skew = _ps[0] / _ps[1] * 100
+            except Exception:
+                _cal_skew = None
+            _cal_note = ('  （校准后 %.0f%%·铁胆口径）' % _cal_skew) if _cal_skew else ''
+            print(f"  🔴skew精确计算(未校准): {probs_sorted[0]*100:.1f}/{probs_sorted[1]*100:.1f} = {skew:.0f}% → {sklvl} (来源:{_sk_src}·修正32判定依据·禁手算){_cal_note}")
             # 弱共识场平局并列铁律（22.7万场回测: skew<150%→市场首选仅36.4-43.0%≈随机）
             if _weak:
                 print(f"  🔴🔴弱共识场(skew={skew:.1f}%<{WEAK_SKEW_PCT:g}%) → 市场首选方向命中率仅 36.4-43.0%(≈随机) → "
