@@ -547,19 +547,52 @@ def over_under_direction(o25):
     return '中性'
 
 
-def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False, v6_status=None):
-    """脚本生成必核清单(附数据状态·LLM照单逐项消费)"""
+# 🔴 2026-10-18「必核清单可满足性」修复
+#   问题：30 项清单里有 5 项在本数据结构下**永远不可能完成**，却仍标「必做」：
+#     C21 盈亏矩阵(需 CS 盘·快照未提供)  C23 新闻伤停(分析禁止联网)
+#     C24 api-football(禁止联网)  C25 footballcharts(源已废弃)  C30 落盘(需未分发的案例库)
+#   后果：清单长期含「做不到的必做项」→ 执行者会开始心里打折，连真该做的也跳。
+#   修法：按**本次运行的实际数据来源与配置**动态定三态，禁硬编码 SKIP。
+CHECKLIST_NOTE = {
+    'C21': 'N/A(原因:快照未提供 CS 比分盘·禁以竞彩让球盘冒充)',
+    'C23': 'N/A(原因:分析阶段禁止联网·无伤停源)',
+    'C24': 'N/A(原因:分析阶段禁止联网·无官方概率/13家)',
+    'C25': 'N/A(原因:footballcharts 域名已失效·降级 understat_xg)',
+    'C30': 'N/A(原因:案例库 data/case-library 未随公开版分发)',
+}
+# 可动态判定的项（依赖运行时配置，不能固定为 N/A）
+CHECKLIST_DYNAMIC = {
+    'C13': 'is_top5', 'C26': 'is_top5', 'C27': 'is_top5',   # 五大才触发（已由 cond 处理）
+}
+
+
+def gen_checklist(league, eu=None, handi=None, o25=None, is_europe=False, is_top5=False, v6_status=None,
+                  offline=True):
+    """脚本生成必核清单(附数据状态·LLM照单逐项消费)
+
+    🔴 offline=True（分析阶段恒真·net_policy.for_analysis()）时，依赖联网的项目标 N/A。
+    """
     lines = ['', '=' * 70, '【必核清单·脚本生成(2026-09-02·防自我遗漏·LLM逐项执行不可跳过)】', '=' * 70]
+    n_na = 0
     for cid, item, cond, src in CHECKLIST:
         if cond == '欧战' and not is_europe:
             lines.append('  %s %-40s [不触发·非欧战]' % (cid, item))
         elif cond == '五大联赛' and not is_top5:
             lines.append('  %s %-40s [不触发·非五大]' % (cid, item))
         elif cid == 'C09' and v6_status:
-            # 🔴 V6 硬门：新鲜度不够时不得再打「必做」（否则执行者会为了「完成清单」而编造 V6 结论）
             lines.append('  %s %-40s [%s]' % (cid, item, v6_status))
+        elif cid in CHECKLIST_NOTE:
+            # 伤停与 api-football 仅在联网复盘时才可能成立
+            na = CHECKLIST_NOTE[cid]
+            if cid in ('C23', 'C24') and not offline:
+                lines.append('  %s %-40s [必做·源:%s]' % (cid, item, src))
+                continue
+            n_na += 1
+            lines.append('  %s %-40s [%s]' % (cid, item, na))
         else:
             lines.append('  %s %-40s [必做·源:%s]' % (cid, item, src))
+    if n_na:
+        lines.append('  ⚠️ 上述 %d 项在**本数据结构/本次运行**下不可能完成 → 已标 N/A（不计入完成度·不得为凑清单而编造结论）' % n_na)
     lines.append('  🔴执行纪律: 逐项执行·每项输出数值证据·条件层三态(触发/不触发(原因)/无数据(原因))·无证据=未执行=禁止通过')
     return '\n'.join(lines)
 
@@ -1008,6 +1041,15 @@ def main():
                     official_dc=float(off) if off else None)
                 print('  方向(欧亚综合): %s(%s) | 并列:%s | 诱盘:%s | 提示:%s | 修正53分组分%.1f' % (
                     dr['主方向'], dr['置信度'], dr['并列建议'], dr.get('诱盘信号') or '无', dr.get('执行提示') or '无', _draw_score))
+                # 🔴铁胆档（2026-10-18·用户指令）——独立于 conf 的「硬度」标签
+                if dr.get('铁胆'):
+                    print('  🔴🔴铁胆档: %s' % dr.get('铁胆标签'))
+                    print('     ↓ 口径：skew=%s（最高隐含/次高隐含）≥ %g；与信心档(%s)是两个维度' % (
+                          dr.get('skew'), 400, dr.get('置信度')))
+                    print('     ↓ 实证：441 场实测命中 85.5%（n=62）·分批 60.0/88.9/87.5/87.5（小批 n=5 拉低，其余三批 87.5-88.9%）')
+                    print('     🔴 铁胆 ≠ 100%：约每 7 场错 1 场，错误绝大多数是「平局」')
+                else:
+                    print('  铁胆档: %s' % dr.get('铁胆标签'))
                 print('  ' + str(dr.get('小概率管理') or ''))
                 if hs is not None:
                     cf = match_classifier(oh, od, oa, handi=hs, water=hw, true_handi=_true_handi)

@@ -474,8 +474,15 @@ def parse_features(text):
     return feat
 
 
-def x53_predict(sections, feat):
-    """修正53 S1-S7 预计算（防手算·输出信号计数+触发判定）"""
+def x53_predict(sections, feat, p_draw=None, oh=None, handi=None):
+    """修正53 S1-S12 预计算（防手算·输出信号计数+触发判定）
+
+    🔴 2026-10-18 修复：
+      ① S9/S10/S11 原为硬编码 0（未接线）→ 组B(盘口结构)恒为 0，而数据本批全可用
+      ② 组合器参数 pd 原写作 pd if 'pd' in dir() else 0 —— dir() 无参返回**当前作用域**,
+        pd 是主函数局部变量，在本函数内恒不存在 → 恒传 0
+        → sole(平局唯一 ≥4 且 P_平≥25%) 永远不成立。现改为显式参数。
+    """
     res = []
     # S1: CS平局比分池内P_i前排 或 资金流入≥3%（需比分盘多时点·单点标观察）
     s1 = '✗'
@@ -530,6 +537,68 @@ def x53_predict(sections, feat):
     s6 = '✗'
     if feat.get('交锋平数') is not None and feat['交锋平数'] >= 2:
         s6 = f"⚠️(交锋{feat['交锋平数']}平·位置不确定·观察)"
+    # 🔴 2026-10-18 修复：S9/S10/S11 原为**硬编码 0**（未接线）→ 组B(盘口结构)恒为 0，
+    #   而组B 所需数据本批全部可用。现按原定义接线（均为 '三态·缺数据不计）。
+    #   S9  小球盘        ← 大小球盘隐含小球占优（P_小 > 0.55）
+    #   S10 亚盘浅让      ← |handi| <= 0.25（平手盘→平局概率上升）
+    #   S11 主胜 2.1-3.0 档  ← 主赔落在中盘模糊区
+    s9 = s10 = s11 = '0'
+    # S9 数据源：输入无独立【大小球】段→ 用【总进球盘 zjq】反推
+    #   P(总进球≤2) = P(0)+P(1)+P(2)；>0.55 则小球盘占优。
+    #   与 O2.5 判向同源但取反（小球占优 → 平局概率上升）。
+    try:
+        _zjq = sections.get('zjq') or []
+        if _zjq:
+            _ts, _o = _zjq[-1]
+            _vig, _p = dejuice(_o)
+            _ge3 = 0.0
+            for _k, _v in _p.items():
+                _kk = str(_k).replace('球', '')
+                if _kk == '7+':
+                    _ge3 += _v
+                else:
+                    try:
+                        if int(_kk) >= 3:
+                            _ge3 += _v
+                    except ValueError:
+                        pass
+            _p_small = 1.0 - _ge3
+            if _p_small > 0.55:
+                s9 = '✓(小球盘%.1f%%)' % (_p_small * 100)
+    except Exception:
+        s9 = '⚠️无数据'
+    # 🔴 三态纪律：若市场段整体缺失 → 标「无数据」而非 '0'（'0' 会被读成「有信号但未触发」）
+    if s9 == '0' and not (sections.get('zjq') or sections.get('ou')):
+        s9 = '⚠️无数据(无总进球/大小球盘)'
+    try:
+        _ou = sections.get('ou') or []
+        if not _ou:
+            for _k, _v in sections.items():
+                if isinstance(_k, str) and ('大小' in _k or _k == 'total'):
+                    _ou = _v; break
+        if _ou:
+            _ts, _o = _ou[-1]
+            _vig, _p = dejuice(_o)
+            _names = list(_p.keys())
+            _small = None
+            for _n in _names:
+                if _n in ('小', '小球', '下盘'):
+                    _small = _p[_n]
+            if _small is not None and _small > 0.55:
+                s9 = '✓(小球盘%.1f%%)' % (_small * 100)
+    except Exception:
+        s9 = '0'
+    try:
+        if handi is not None and abs(handi) <= 0.25:
+            s10 = '✓(平手/浅让%+.2f)' % handi
+    except Exception:
+        s10 = '0'
+    try:
+        if oh is not None and 2.1 <= oh <= 3.0:
+            s11 = '✓(主胜%.2f中盘模糊区)' % oh
+    except Exception:
+        s11 = '0'
+
     # S7: 两回合首回合（非欧战=0）
     s7 = '✗(非两回合)'
     # 评审固化·P0-2: 分组去相关（组A资金/S1+S2+S8·组B盘口/S9-S11·组C基本面/S4+S6+S12·组D赛事/S3+S7·组内最多计1/1.5分·禁重复计数）
@@ -540,14 +609,18 @@ def x53_predict(sections, feat):
             'S1': 1 if s1.startswith('✓') else 0, 'S2': 1 if s2.startswith('✓') else 0,
             'S3': 1 if s3.startswith('✓') else 0, 'S4': 1 if s4.startswith('✓') else 0,
             'S6': 1 if s6.startswith('✓') else 0, 'S8': 0,
-            'S9': 0, 'S10': 0, 'S11': 0, 'S12': 0,
+            'S9': 1 if s9.startswith('✓') else 0,
+            'S10': 1 if s10.startswith('✓') else 0,
+            'S11': 1 if s11.startswith('✓') else 0, 'S12': 0,
         }
-        score, trigger, detail = draw_signal_aggregator(signals, pd if 'pd' in dir() else 0)
-        res.append(f"🔴修正53预计算: S1{s1} | S2{s2} | S3{s3} | S4{s4} | S5{s5} | S6{s6} | S7{s7}")
+        score, trigger, detail = draw_signal_aggregator(signals, p_draw or 0.0)
+        res.append(f"🔴修正53预计算: S1{s1} | S2{s2} | S3{s3} | S4{s4} | S5{s5} | S6{s6} | S7{s7}"
+                   f" | S9{s9} | S10{s10} | S11{s11}")
         res.append(f"  🔴分组去相关(P0-2): {detail} → 总分{score} → " + ({'sole': '平局唯一(≥4+P_平≥25%)', 'parallel': '平局并列(≥2.5 或 D1背离+≥1.5)', 'none': '不并列'}[trigger]))
     except Exception:
         cnt = sum(1 for s in (s1, s2, s3, s4, s6) if s.startswith('✓'))
-        res.append(f"🔴修正53预计算: S1{s1} | S2{s2} | S3{s3} | S4{s4} | S5{s5} | S6{s6} | S7{s7}")
+        res.append(f"🔴修正53预计算: S1{s1} | S2{s2} | S3{s3} | S4{s4} | S5{s5} | S6{s6} | S7{s7}"
+                   f" | S9{s9} | S10{s10} | S11{s11}")
         res.append(f"  信号计数(不计S5): {cnt} → " + ("≥3触发平局并列" if cnt >= 3 else ("≥5触发平局唯一" if cnt >= 5 else "<3不并列")))
     return '\n'.join(res)
 
@@ -719,7 +792,7 @@ def run_extensions(sections, feat, eu_odds=None, handi=None, water=None):
     if 'spf' in sections and sections['spf']:
         ts, odds = sections['spf'][-1]
         vig, prob = dejuice(odds)
-        out.append(x53_predict(sections, feat))
+        out.append(x53_predict(sections, feat, p_draw=prob.get('平', 0), oh=odds.get('胜'), handi=handi))
         out.append(v5_divergence(prob, eu_odds))
     # 结构性根除: 接入孤儿函数(防步骤遗失·曾main未调用)
     out.append('')

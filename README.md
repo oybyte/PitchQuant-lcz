@@ -2,7 +2,7 @@
 
 # ⚽ PitchQuant
 
-### 足球赔率分析模型 · Public Release v1.2 ｜ Core Model V3.5.76
+### 足球赔率分析模型 · Public Release v1.2 ｜ Core Model V3.5.74
 
 > ### 🎯 A football-odds pipeline where the LLM **executes** a 252-check auditable workflow — and every weight is **earned from 227k-match backtests**.
 > ### 🎯 一条由 **252 道校验**锁定的 LLM 分析流水线 —— 每一个权重都来自 **22.7 万场回测**。
@@ -14,7 +14,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Skills](https://img.shields.io/badge/Skills-36-green)
-![Scripts](https://img.shields.io/badge/Scripts-143-yellow)
+![Scripts](https://img.shields.io/badge/Scripts-179-yellow)
 ![Auto--Checks](https://img.shields.io/badge/Auto--Checks-252-orange)
 ![Backtest](https://img.shields.io/badge/Backtest-227k%20matches-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
@@ -548,6 +548,8 @@ PitchQuant/
 | 🔴 **[`docs/data-and-apis.md`](docs/data-and-apis.md)** | **数据与 API 清单**——你必须自备什么 / 哪些 API / 免费额度 / 降级行为<br>Required data & APIs — what you must provide, free tiers, graceful degradation |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与规则优先级——四层结构 / L1–L5 优先级体系 / 四道质量门<br>Architecture & rule priorities — four layers, priority system, quality gates |
 | [`docs/methodology.md`](docs/methodology.md) | 方法论——关键回测结论 + 数学公式 + 复现步骤<br>Methodology — backtest findings, formulas, reproduction steps |
+| 🔴 **[`docs/铁胆档_2026-10-18.md`](docs/铁胆档_2026-10-18.md)** | **铁胆档（TIEDAN）**——`skew≥400` 阈值设计 · 441 场实测 85.5% · 错误画像 · 为何不用 700<br>TIEDAN tier — threshold design, 441-match validation, error profile |
+| [`docs/复盘_2026-10-17_26场.md`](docs/复盘_2026-10-17_26场.md) | 单批复盘实证——命中率 / 朴素基线对照 / 置信度分层 / 结构性偏差<br>Batch post-mortem — hit rates, naive baselines, confidence stratification |
 | [`examples/`](examples/) | 脱敏完整案例（含一次误判复盘）<br>Anonymized real case, including a mis-prediction post-mortem |
 | **[`DISCLAIMER.md`](DISCLAIMER.md)** | ⚠️ **法律免责声明**——学术用途 / 禁止博彩 / 无保证 / 责任限制<br>Legal disclaimer — academic use only, prohibitions, limitation of liability |
 | **[`NOTICE.md`](NOTICE.md)** | 第三方商标与数据来源归属<br>Third-party trademarks & data attribution |

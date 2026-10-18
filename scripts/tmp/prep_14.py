@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""prep_14.py — _by_category/14场 → 标准输入 txt + manifest（模板复用 v259_convert）
+"""prep_14.py — _by_category/14场 → 标准输入 txt + manifest
 
-与 v259_convert 的差异:
+（历史：模板最初取自 v259_convert；该脚本已于 2026-10-18 并入 v259_ingest 并删除。
+  本脚本仍自包含，无代码级依赖，仅保留其专用产物：公众通道 txt + 机构明细 json。）
+
+与其他转换脚本的差异:
   · 源目录改为 _by_category/14场（json 与 output 内同源，逐字节校验一致）
   · 保留服务端未提供的节（半全场/总进球/比分）为空表头 → 下游三态 missing
   · 额外产出: 公众通道(体彩官方) txt + 跨机构最高/最低价 + 全量机构明细 json

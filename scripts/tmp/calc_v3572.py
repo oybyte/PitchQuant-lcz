@@ -34,6 +34,19 @@ from table_paths import find_table, load_table, find_root  # noqa: E402  ← 统
 WATER_SCALE_LO, WATER_SCALE_HI = 1.5, 2.1     # 有效标度(闭区间·含端点)
 WATER_LOW, WATER_HIGH = 1.85, 2.05            # 低水/高水阈值(严格不等号: <低水, >高水)
 
+# ── 🔴铁胆档（2026-10-18·用户指令）────────────────────────────────
+# 动机：HIGH 档承诺 ≥70%，441 场实测 79.0%，但用户要求「更硬的档」。
+# 口径：skew = 最高隐含 / 次高隐含 × 100（市场共识强度，与赔率绝对值无关）。
+# 441 场实测（batch_{2_5_8,74,140,203}·result_compare.json）：
+#   skew>=400 → 62 场 命中 85.5%  ｜ 分批 60.0/88.9/87.5/87.5（n=5 小批拉低，其余三批 87.5-88.9）
+#   skew>=700 → 14 场 命中 92.9%  ｜ 样本过小，单调性在 400-1000 区间抖动 → 不采用
+# 结论：取 400 —— 62 场样本站得住，且相邻阈值(350/450/500 → 81.2/84.6/86.5)平滑无断层。
+# 🔴铁胆 ≠ 100%：85.5% 意味着约每 7 场错 1 场，且错误集中在「平局」(见 docs/铁胆档_2026-10-18.md)。
+TIEDAN_SKEW_MIN = 400.0                       # 铁胆门槛(单一真源·禁他处硬编码)
+TIEDAN_HIT_RATE = 85.5                        # 441 场实测命中率(打印用·防记忆漂移)
+TIEDAN_N = 62                                 # 实测样本量
+TIEDAN_COVERAGE = 14.1                        # 占全部场次比例(62/441)
+
 
 def water_in_scale(water):
     """水位是否属于本仓唯一标度(欧式 1.8-2.1)。标度外 → 调用方应三态标注不参与。"""
@@ -563,7 +576,30 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
             hints.append('MID-LOW平局加权: 平局分组%.1f分→弱并列参考(此档平局率偏高·LLM综合)' % draw_group_score)
         if '并列' not in str(hints):
             hints.append('MID-LOW模糊区: 默认并列参考(不单选·此档单选命中52.9%·LLM定并列与否)')
+    # 🔴铁胆档判定（2026-10-18·用户指令）
+    #   铁胆 = skew >= TIEDAN_SKEW_MIN，不受 conf 档位限制（铁胆与 HIGH 是两个维度：
+    #   conf 看主方向概率，铁胆看市场共识强度）。
+    _sk = (main_p / second_p * 100) if second_p > 0 else 999.0
+    tiedan = _sk >= TIEDAN_SKEW_MIN
+    if tiedan:
+        td_label = ('🔴铁胆(skew=%.0f≥%.0f·441场实测命中%.1f%%·n=%d)'
+                    % (_sk, TIEDAN_SKEW_MIN, TIEDAN_HIT_RATE, TIEDAN_N))
+        # 铁胆不能反转方向，但若弱共识/中盘逻辑已将平局并列，铁胆仅提示「平局是唯一风险」
+        # 🔴 2026-10-18 复盘发现：原来的平局风险提示只在 parallel=='yes' 时触发，
+        #   但铁胆必然是强共识场 → parallel 恒为 'no' → 这段提示 6/6 场次全部不执行（死分支）。
+        #   现改为：只要是铁胆就思考平局风险，并带上模型自估平局概率（可行动）。
+        hints.append('🔴铁胆单选须显式处理平局风险：模型自估平局 %.1f%%·'
+                      '441 场铁胆错误 6/9 为平局（含 skew=1176 的拜仁客场）' % (pd * 100))
+        if parallel == 'yes':
+            hints.append('⚠️铁胆且已判平局并列：两个维度方向不一致，请以平局保护为优先')
+    else:
+        td_label = '—(skew=%.0f<%.0f)' % (_sk, TIEDAN_SKEW_MIN)
+    # 可信度与铁胆交叉提示
+    if tiedan and conf in ('LOW', 'MID-LOW'):
+        hints.append('⚠️铁胆但价格目标档低(%s)：441 场实测铁胆不依赖 conf，但两者背离时仅作参考' % conf)
     return {'主胜': round(ph*100, 1), '平局': round(pd*100, 1), '客胜': round(pa*100, 1),
+            '铁胆': tiedan, '铁胆标签': td_label, 'skew': round(_sk, 1),
+
             '主方向': main_dir, '置信度': conf, '置信度标签': conf_label, '平局信号': draw_signal, '并列建议': parallel,
             '诱盘信号': trap, '执行提示': hints, '修正方向': fix_dir, '小概率管理': sp_note,
             # 🔴2026-10-17 修复(第二轮复跑发现): 原「依据」恒写『odds_table档位校准』，

@@ -28,7 +28,17 @@ calc_match 打印的「竞彩抽水」并非独立采集的竞彩时点数据，
     python scripts/tmp/check_vig_basis.py --batch <out目录>      # 批级：含 F1 触发率
     python scripts/tmp/check_vig_basis.py ... --json
 
-退出码: 0 = 未发现名实不符; 1 = 存在（FAIL 项）; 2 = 用法错误
+自洽性检查（--selfcheck）
+------------------------------
+吸收并取代 v259_consistency.py（原脚本固定指向 batch_v259_today，已无法复用），并补两项：
+  SC01  skew 与隐含相符    （报的 skew 应 = 最高隐含 / 次高隐含）
+  SC02  λ 与聚合方向一致  （|λh-λa|>0.15 时，λ 主导方向不得与聚合最高向相反）
+  SC03  聚合概率和=100    （容差 1.5pp）
+  SC04  铁胆与 skew 自洽    （铁胆档所展示的 skew 必须 ≥ TIEDAN_SKEW_MIN）
+  SC05  铁胆必带否定声明（防被读成必胜）
+三态: 无数据则跳过该项（不计入异常）。
+
+退出码: 0 = 未发现名实不符/自洽性异常; 1 = 存在（FAIL 项）; 2 = 用法错误
 """
 import argparse
 import json
@@ -241,12 +251,105 @@ def check_batch(out_dir):
     return F
 
 
+# ── 自洽性检查（吸收 v259_consistency）──
+RE_DEVIG = re.compile(r'隐含: 主([\d.]+)%/平([\d.]+)%/客([\d.]+)%')
+RE_SKEW = re.compile(r'skew精确计算: ([\d.]+)/([\d.]+) = ([\d.]+)%')
+RE_LAM = re.compile(r'λ: 主([\d.]+) 客([\d.]+) 总([\d.]+)')
+RE_AGG = re.compile(r'聚合: 主([\d.]+)% 平([\d.]+)% 客([\d.]+)%')
+RE_TD = re.compile(r'铁胆档: 🔴铁胆\(skew=([\d.]+)')
+RE_TD0 = re.compile(r'铁胆档: —\(skew=([\d.]+)<')
+
+
+def selfcheck_output(text, name=''):
+    """输出内部数值自洽性（不查结论对错，只查数字与数字能不能对上）"""
+    F2 = []
+
+    def add2(level, code, msg, fix=''):
+        F2.append({'level': level, 'code': code, 'msg': msg, 'fix': fix, 'match': name})
+
+    dev = RE_DEVIG.search(text)
+    sk = RE_SKEW.search(text)
+    lam = RE_LAM.search(text)
+    agg = RE_AGG.search(text)
+
+    # SC01 skew = 最高隐含 / 次高隐含
+    #   🔴 容差必须覆盖「隐含只保留 1 位小数」带来的舍入误差:
+    #   例 拜仁 80.5/11.2 = 718.8，但报 721.0（差 2.2pp）——源数据本就是 1 位小数。
+    #   精确阈值: 1 位小数反算的最大相对误差 ≈ (0.05/hi + 0.05/lo)*100pp，取 3% 为安全上界。
+    #   超 3% 才是真的口径分叉（如两个不同组的去水结果）。
+    if dev and sk:
+        vals = [float(x) for x in dev.groups()]
+        hi, lo = max(vals), sorted(vals)[-2]
+        calc = hi / lo * 100 if lo else None
+        rep = float(sk.group(3))
+        _rel = abs(calc - rep) / rep * 100 if (calc is not None and rep) else 0
+        # 双阈值: 相对 3%（容 1 位小数舍入）**且** 绝对 15pp（容大 skew 的放大效应）
+        #   只用相对阈会漏报（999%% vs 真值），只用绝对阈会误报（skew 700 时 3pp 就是常态）
+        if calc is not None and _rel > 3.0 and abs(calc - rep) > 15.0:
+            add2('FAIL', 'SC01', '隐含%s → skew应为 %.1f%%，但报 %.1f%%（偏差 %.1f%%）' % (vals, calc, rep, _rel),
+                 '两者必须同源同口径；skew 禁手算，应由 calc_match 从同一组去水概率直接派生')
+
+    # SC02 λ 与聚合方向
+    if lam and agg:
+        lh, la = float(lam.group(1)), float(lam.group(2))
+        a3 = [float(agg.group(i)) for i in (1, 2, 3)]
+        if abs(lh - la) > 0.15:
+            lam_dir = 'H' if lh > la else 'A'
+            agg_dir = ['H', 'D', 'A'][max(range(3), key=lambda i: a3[i])]
+            if lam_dir != agg_dir:
+                add2('FAIL', 'SC02', 'λ 主%.2f/客%.2f → %s，但聚合最高为 %s（%.1f/%.1f/%.1f）' % (
+                     lh, la, lam_dir, agg_dir, a3[0], a3[1], a3[2]),
+                     '泊松λ 与聚合方向背离时，锚与量级会互相矛盾')
+
+    # SC03 聚合概率和
+    if agg:
+        tot = sum(float(agg.group(i)) for i in (1, 2, 3))
+        if abs(tot - 100) > 1.5:
+            add2('FAIL', 'SC03', '聚合三向概率和 = %.1f%%（应为 100%%±1.5pp）' % tot,
+                 '归一化步骤缺失或某一分支未归一')
+
+    # SC04/SC05 铁胆自洽
+    try:
+        import calc_v3572 as _CV
+        th = _CV.TIEDAN_SKEW_MIN
+        td = RE_TD.search(text)
+        td0 = RE_TD0.search(text)
+        if td and float(td.group(1)) < th:
+            add2('FAIL', 'SC04', '判为铁胆但 skew=%.0f < %.0f' % (float(td.group(1)), th),
+                 '铁胆与 skew 必须同源（TIEDAN_SKEW_MIN 单一真源）')
+        if td0 and float(td0.group(1)) >= th:
+            add2('FAIL', 'SC04', '判为非铁胆但 skew=%.0f ≥ %.0f' % (float(td0.group(1)), th), '同上')
+        if td and '铁胆 ≠ 100%' not in text:
+            add2('FAIL', 'SC05', '铁胆场缺「铁胆 ≠ 100%」声明', '防被读成必胜')
+    except Exception:
+        pass
+    return F2
+
+
+def _print_selfcheck(a, self_findings):
+    if not getattr(a, 'selfcheck', False):
+        return
+    print()
+    print('─' * 72)
+    print('数值自洽性检查（SC01-SC05）')
+    print('─' * 72)
+    if not self_findings:
+        print('✅ 全部自洽（隐含/skew/λ/聚合/铁胆 互相对得上）')
+    else:
+        for f in self_findings:
+            print('❌ [%s] %s — %s' % (f['code'], (f['match'] or '')[:40], f['msg']))
+            if f.get('fix'):
+                print('     ↳ %s' % f['fix'])
+
+
 def main():
     ap = argparse.ArgumentParser(description='反抽水/凯利基准与标签校验（阶段1·检查器①）')
     ap.add_argument('input', nargs='?', help='输入 txt（标准竞彩格式）')
     ap.add_argument('--output', help='calc_all 输出 txt（用于对照打印值）')
     ap.add_argument('--batch', help='批级模式：calc_all 输出目录')
     ap.add_argument('--eu', help='基线欧赔 主,平,客（输入内无基线行时使用）')
+    ap.add_argument('--selfcheck', action='store_true',
+                    help='额外跑数值自洽性（SC01-SC05）：隐含/skew/λ/聚合/铁胆 能否互相对上')
     ap.add_argument('--json', action='store_true')
     a = ap.parse_args()
 
@@ -265,26 +368,44 @@ def main():
         print(__doc__)
         return 2
 
+    # ── 自洽性（--selfcheck）──
+    self_findings = []
+    if getattr(a, 'selfcheck', False):
+        if a.batch:
+            for _fn in sorted(os.listdir(a.batch)):
+                if not _fn.endswith('.txt'):
+                    continue
+                _t = open(os.path.join(a.batch, _fn), encoding='utf-8', errors='ignore').read()
+                self_findings += selfcheck_output(_t, _fn)
+        elif a.output and os.path.exists(a.output):
+            self_findings += selfcheck_output(
+                open(a.output, encoding='utf-8', errors='ignore').read(), os.path.basename(a.output))
+
     if a.json:
-        print(json.dumps(findings, ensure_ascii=False, indent=1))
-        return 1 if any(f['level'] == 'FAIL' for f in findings) else 0
+        allf = findings + self_findings
+        print(json.dumps(allf, ensure_ascii=False, indent=1))
+        return 1 if any(f['level'] == 'FAIL' for f in allf) else 0
 
     print('=' * 72)
     print('check_vig_basis — 反抽水/凯利 基准与标签校验')
     print('=' * 72)
     if not findings:
         print('✅ 未发现名实不符')
-        return 0
+        _print_selfcheck(a, self_findings)
+        return 1 if any(f['level'] == 'FAIL' for f in self_findings) else 0
     order = {'FAIL': 0, 'WARN': 1, 'INFO': 2}
     for f in sorted(findings, key=lambda x: order.get(x['level'], 9)):
         icon = {'FAIL': '❌', 'WARN': '⚠️', 'INFO': 'ℹ️'}.get(f['level'], '·')
         print('%s [%s] %s' % (icon, f['code'], f['msg']))
         if f.get('fix'):
             print('     ↳ 应改为: %s' % f['fix'])
-    fails = sum(1 for f in findings if f['level'] == 'FAIL')
+    _print_selfcheck(a, self_findings)
+
+    allf = findings + self_findings
+    fails = sum(1 for f in allf if f['level'] == 'FAIL')
     print('\nFAIL %d · WARN %d · INFO %d' % (
-        fails, sum(1 for f in findings if f['level'] == 'WARN'),
-        sum(1 for f in findings if f['level'] == 'INFO')))
+        fails, sum(1 for f in allf if f['level'] == 'WARN'),
+        sum(1 for f in allf if f['level'] == 'INFO')))
     return 1 if fails else 0
 
 
