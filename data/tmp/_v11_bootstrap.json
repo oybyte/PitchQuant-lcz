@@ -1,0 +1,10 @@
+{
+ "scope_n": 241,
+ "passed_n": 21,
+ "ctrl_n": 220,
+ "passed_mean": 0.3929,
+ "ctrl_mean": 0.5295,
+ "diff": -0.1367,
+ "boot_lo5": -0.296,
+ "sigma": 0.4593
+}
