@@ -14,7 +14,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Skills](https://img.shields.io/badge/Skills-36-green)
-![Scripts](https://img.shields.io/badge/Scripts-179-yellow)
+![Scripts](https://img.shields.io/badge/Scripts-172-yellow)
 ![Auto--Checks](https://img.shields.io/badge/Auto--Checks-252-orange)
 ![Backtest](https://img.shields.io/badge/Backtest-227k%20matches-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
@@ -420,7 +420,7 @@ PreStep ──▶ ① 数据获取（多源 · 三态标注）
 |:--|:--|:--|
 | 市场校准度 | 22.7 万场 | 最高概率档实际命中 **比隐含高 0.3–4.4pp**（热门被系统性低估） |
 | 弱共识分档断点 | 22.7 万场 | skew <110%：**36.4%** · 110–130%：38.6% · 130–150%：**43.0%** · ≥200%：**64.6%** |
-| 比分锚可信度 | 157 场案例库 | 实际总进球 ≤3 球：锚命中 **36.4%** · ≥4 球：**2.9%** · ≥5 球：**0%** |
+| 比分锚可信度 | 157 场案例库 + 439 场复核 | 实际总进球 ≤3 球：锚命中 **36.4%** · ≥4 球：**2.9%** · ≥5 球：**0%**<br>🔴 **仅限比分层**——该档方向命中反而最高 **87.1%**（n=31），方向不受影响 |
 | 大小球信号分层 | 148,397 场（时间分割） | 强(≥58%)：**65.0%** · 中(55–58%)：57.0% · 弱(53–55%)：54.8% ≈ 随机 |
 | 融合权重寻优 | 20,000 场 | 市场 .7 + 泊松 .15 最优：**Top-1 14.37%** vs 无市场源 12.32% |
 | 跨机构分歧度 | 22.7 万场 | 热门价差 <2%：**62.6%** · >10%：45.0% · 深盘热门(<1.50)+价差<2%：**81.5%**（基准 75.4%） |
@@ -548,7 +548,7 @@ PitchQuant/
 | 🔴 **[`docs/data-and-apis.md`](docs/data-and-apis.md)** | **数据与 API 清单**——你必须自备什么 / 哪些 API / 免费额度 / 降级行为<br>Required data & APIs — what you must provide, free tiers, graceful degradation |
 | [`docs/architecture.md`](docs/architecture.md) | 架构与规则优先级——四层结构 / L1–L5 优先级体系 / 四道质量门<br>Architecture & rule priorities — four layers, priority system, quality gates |
 | [`docs/methodology.md`](docs/methodology.md) | 方法论——关键回测结论 + 数学公式 + 复现步骤<br>Methodology — backtest findings, formulas, reproduction steps |
-| 🔴 **[`docs/铁胆档_2026-10-18.md`](docs/铁胆档_2026-10-18.md)** | **铁胆档（TIEDAN）**——`skew≥400` 阈值设计 · 441 场实测 85.5% · 错误画像 · 为何不用 700<br>TIEDAN tier — threshold design, 441-match validation, error profile |
+| 🔴 **[`docs/铁胆档_2026-10-18.md`](docs/铁胆档_2026-10-18.md)** | **铁胆档（TIEDAN）**——`skew≥450` 阈值设计 · 439 场实测 85.7% · 错误画像 · 为何不用 700<br>TIEDAN tier — threshold design, 439-match validation, error profile |
 | [`docs/复盘_2026-10-17_26场.md`](docs/复盘_2026-10-17_26场.md) | 单批复盘实证——命中率 / 朴素基线对照 / 置信度分层 / 结构性偏差<br>Batch post-mortem — hit rates, naive baselines, confidence stratification |
 | [`examples/`](examples/) | 脱敏完整案例（含一次误判复盘）<br>Anonymized real case, including a mis-prediction post-mortem |
 | **[`DISCLAIMER.md`](DISCLAIMER.md)** | ⚠️ **法律免责声明**——学术用途 / 禁止博彩 / 无保证 / 责任限制<br>Legal disclaimer — academic use only, prohibitions, limitation of liability |

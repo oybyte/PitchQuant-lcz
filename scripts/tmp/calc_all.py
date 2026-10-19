@@ -106,6 +106,24 @@ def norm_league(x):
             or _LG_SLUG2CN.get(k) or s)
 
 
+def _norm(s):
+    """队名归一化（去重音 / 去俱乐部前后缀 / 去标点）——2026-10-18 从 ELO 内联提升为模块级。
+
+    原为 _layer_state_lines 内 ELO 分支的闭包；xG 分支只在「西甲以外的联赛解析失败」
+    时才走到它 → 触发 UnboundLocalError: cannot access local variable '_norm'，
+    使 5 场荷甲/瑞典超/挪超/芬超冠 的 xG 行退化成「无数据(原因: 脚本异常)」。
+    现两处共用同一实现（算法未改）。
+    """
+    s = (s or '').lower()
+    for _a, _b in (('ä', 'a'), ('ö', 'o'), ('ü', 'u'), ('é', 'e'), ('í', 'i'),
+                   ('á', 'a'), ('ó', 'o'), ('ñ', 'n'), ('ç', 'c'), ('è', 'e')):
+        s = s.replace(_a, _b)
+    for _w in ('fc ', 'fc', 'cf ', 'ac ', 'as ', 'ssc ', 'ss ', 'sc ', '1. ', 'afc ',
+               'club ', 'calcio ', '.', '-', ' ', "'"):
+        s = s.replace(_w, '')
+    return s
+
+
 def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
     """C13/C26/C27 先行层三态统一声明（HAF / ELO / xG）
 
@@ -253,16 +271,6 @@ def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
                      '博洛尼亚': ['Bologna'], '巴伦西亚': ['Valencia'], '瓦伦西亚': ['Valencia'],
                      '柏林联合': ['Union Berlin'], '富勒姆': ['Fulham'], '利物浦': ['Liverpool'],
                      '比利亚雷亚尔': ['Villarreal'], '埃尔切': ['Elche']}
-
-            def _norm(s):
-                s = (s or '').lower()
-                for _a, _b in (('ä', 'a'), ('ö', 'o'), ('ü', 'u'), ('é', 'e'), ('í', 'i'),
-                               ('á', 'a'), ('ó', 'o'), ('ñ', 'n'), ('ç', 'c'), ('è', 'e')):
-                    s = s.replace(_a, _b)
-                for _w in ('fc ', 'fc', 'cf ', 'ac ', 'as ', 'ssc ', 'ss ', 'sc ', '1. ', 'afc ',
-                           'club ', 'calcio ', '.', '-', ' ', "'"):
-                    s = s.replace(_w, '')
-                return s
 
             _pool_norm = {}
             for _k in _pool:
