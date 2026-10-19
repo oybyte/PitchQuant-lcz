@@ -299,3 +299,30 @@ def test_cli_check_mode_does_not_write(tmpdir_repo):
                        cwd=ROOT, timeout=180)
     assert r.returncode == 0, r.stdout[-400:] + r.stderr[-400:]
     assert not os.path.exists(out), '--check 不得落盘'
+
+
+
+# ══════════ ⑨ S4 初盘位移（2026-10-19）══════════
+
+def test_ingest_writes_s4_shift_line(tmpdir_repo):
+    """v259_ingest 必须把「初盘→即盘位移」写进 txt 头（S4）。
+
+    口径: base_init / base_live 已是本函数内的真初盘与即盘，直接复用。
+    本用例的初盘 2.77/3.67/2.08 → 即盘 2.55/3.73/2.20：
+      初盘热门=客胜(2.08) → 即盘客胜 2.20，1/2.20-1/2.08 = -2.62pp → 位移 <3 → flat
+    """
+    import subprocess
+    src = os.path.join(tmpdir_repo, 'src')
+    _snapshot(os.path.join(src, 'm1'),
+              euro_timeline=_tl([('10-17 17:01', '2.55', '3.73', '2.2')]))
+    out = os.path.join(tmpdir_repo, 'out')
+    r = subprocess.run([sys.executable, os.path.join(TMP, 'v259_ingest.py'),
+                        '--src', src, '--out', out],
+                       capture_output=True, text=True, encoding='utf-8',
+                       errors='replace', cwd=ROOT, timeout=180)
+    assert r.returncode == 0, r.stdout[-400:] + r.stderr[-400:]
+    txts = [f for f in os.listdir(out) if f.endswith('.txt')]
+    assert txts, 'no txt produced'
+    head = open(os.path.join(out, txts[0]), encoding='utf-8').read()
+    assert '🔴S4初盘位移' in head
+    assert '强度档=flat' in head

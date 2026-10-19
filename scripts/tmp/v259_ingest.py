@@ -53,6 +53,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
 import ou_from_asia as OA  # noqa: E402
+import opening_shift as S4  # noqa: E402  S4 初盘位移（单一真源·只加标签不改方向）
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')
@@ -345,6 +346,9 @@ def build(match_dir, baseline='macao', emit_series=True):
     L.append('🔴机构通道统一基线 = %s胜平负即盘：%g / %g / %g (初盘 %g / %g / %g)' % (
         base_tag, base_live[0], base_live[1], base_live[2],
         base_init[0], base_init[1], base_init[2]))
+    # 🔴 S4 初盘位移（2026-10-19）：base_init/base_live 已是本函数的真初盘与即盘，
+    # 直接复用，禁止重读快照。只产出标签行，判定权仍在模型。
+    L.append(S4.signal_line(S4.compute_shift(base_init, base_live)))
     if pin:
         pv = _o(pin, 'live')
         L.append('欧赔(Pinnacle 即盘·交叉校验源)：%g / %g / %g' % pv)
