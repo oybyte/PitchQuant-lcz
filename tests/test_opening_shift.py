@@ -113,3 +113,32 @@ def test_constants_are_single_source():
     assert OS.S4_SHIFT_MIN_PP == 5.0
     assert OS.S4_MID_PP == 3.0
     assert OS.S4_STRONG_FAV_PCT == 70.0
+
+
+
+def test_signal_line_pcts_are_same_direction_devig():
+    """展示的两个百分比必须是「同方向、同量纲」的去水占比。
+
+    回归（自查发现）：原实现用 open_pct = fav_live_pct - conc_pp 反推，
+    但 conc_pp 是未去水的赔率倒数差，且热门被推翻时 fav_live != fav_open
+    → 展示值可差 10pp 以上。这里钉住「初盘 59.3% → 即盘 60.7%」。
+    """
+    r = OS.compute_shift((1.52, 3.91, 5.10), (1.48, 3.97, 5.40))
+    # 等比例去水: 初盘主胜 = (1/1.52)/(1/1.52+1/3.91+1/5.10) = 0.5932
+    assert abs(r['fav_open_pct'] - 59.32) < 0.05
+    # 即盘主胜 = (1/1.48)/(1/1.48+1/3.97+1/5.40) = 0.6072
+    assert abs(r['fav_open_dir_pct'] - 60.72) < 0.05
+    line = OS.signal_line(r)
+    assert '59.3%' in line and '60.7%' in line
+
+
+def test_signal_line_flip_uses_open_favorite_direction():
+    """热门被推翻时，两个百分比仍须是「初盘热门那一方向」的占比，不得拿即盘热门方去减。"""
+    r = OS.compute_shift((2.10, 3.40, 3.30), (2.90, 3.40, 2.20))
+    assert r['fav_kept'] is False
+    # 脚本算得（禁手算）: 初盘主胜 = (1/2.10)/(1/2.10+1/3.40+1/3.30) = 44.3654%
+    #                   即盘主胜 = (1/2.90)/(1/2.90+1/3.40+1/2.20) = 31.5346%
+    assert abs(r['fav_open_pct'] - 44.3654) < 0.01
+    assert abs(r['fav_open_dir_pct'] - 31.5346) < 0.01
+    line = OS.signal_line(r)
+    assert '热门被推翻' in line

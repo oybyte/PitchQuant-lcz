@@ -54,7 +54,8 @@ def _missing(reason):
     """三态构造器——缺数据时唯一出口，禁止用空 dict 或 None 冒充"""
     return {'state': 'missing', 'reason': reason, 'fav_open': None,
             'fav_live': None, 'fav_kept': None, 'conc_pp': None,
-            'fav_live_pct': None, 'tier': 'missing'}
+            'fav_live_pct': None, 'fav_open_pct': None,
+            'fav_open_dir_pct': None, 'tier': 'missing'}
 
 
 def _f(x):
@@ -122,7 +123,15 @@ def compute_shift(init, live):
     conc = (1.0 / vl[fav_open] - 1.0 / vi[fav_open]) * 100.0
     conc = 0.0 if abs(conc) < 1e-12 else conc
 
-    pct = _devig(vl)[fav_live] * 100.0
+    # 展示用的三个占比（全部为「去水后」·同量纲）：
+    #   fav_live_pct     = 即盘热门方占比           （is_strong 判强热门档用）
+    #   fav_open_pct     = 初盘热门方占比           （初盘侧的起点）
+    #   fav_open_dir_pct = 「初盘热门那一方向」在即盘的占比（与 open_pct 同向可比）
+    pi = _devig(vi)
+    pl = _devig(vl)
+    pct = pl[fav_live] * 100.0
+    open_pct = pi[fav_open] * 100.0
+    open_dir_live_pct = pl[fav_open] * 100.0
 
     # 分级顺序：先 flip，再 strong，再 mid，最后 flat（顺序错会把 flip 判成 strong）
     if not kept:
@@ -136,7 +145,8 @@ def compute_shift(init, live):
 
     return {'state': 'ok', 'reason': None, 'fav_open': fav_open,
             'fav_live': fav_live, 'fav_kept': kept, 'conc_pp': conc,
-            'fav_live_pct': pct, 'tier': tier}
+            'fav_live_pct': pct, 'fav_open_pct': open_pct,
+            'fav_open_dir_pct': open_dir_live_pct, 'tier': tier}
 
 
 _LAB = ('主胜', '平局', '客胜')
@@ -153,11 +163,18 @@ def signal_line(result):
 
     fav = _LAB[result['fav_open']]
     conc = result['conc_pp']
-    pct = result['fav_live_pct']
-    open_pct = pct - conc        # 初盘同方向去水占比（展示用·由同一口径反推）
+    # 🔴 展示必须用两个「同方向」的去水占比，不能用 pct−conc 反推：
+    #   conc 是未去水的赔率倒数差，与去水占比不同量纲；
+    #   且热门被推翻时 fav_live ≠ fav_open，pct 属于另一个方向，减出来会差 10pp+。
+    open_pct = result.get('fav_open_pct')
+    live_pct = result.get('fav_open_dir_pct')
+    if open_pct is None or live_pct is None:
+        kept = '热门未变' if result['fav_kept'] else '热门被推翻'
+        return ('🔴S4初盘位移: %s %+.1fpp · %s · 强度档=%s'
+                % (fav, conc, kept, result['tier']))
     kept = '热门未变' if result['fav_kept'] else '热门被推翻'
-    return ('🔴S4初盘位移: %s %+.1fpp（初盘 %.1f%% → 即盘 %.1f%%）· %s · 强度档=%s'
-            % (fav, conc, open_pct, pct, kept, result['tier']))
+    return ('🔴S4初盘位移: %s %+.1fpp（初盘 %.1f%% → 即盘 %.1f%%·同向去水）· %s · 强度档=%s'
+            % (fav, conc, open_pct, live_pct, kept, result['tier']))
 
 
 def is_strong(result):
