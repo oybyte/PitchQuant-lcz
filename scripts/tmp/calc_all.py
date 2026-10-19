@@ -135,7 +135,8 @@ def _s4_block(txt_path):
 
     依据（441 场真初盘·docs/初盘判定_2026-10-19.md）:
       |位移|≥5pp 且热门未变 → 73.6%(n=87) vs 稳定 ±3pp → 55.3%(n=246)
-      Bootstrap 95%CI [+0.068, +0.291]；60-70% 强热门档打平（故需 is_strong 二次判定）
+      Bootstrap 95%CI [+0.068, +0.291]；70% 以上强热门档打平
+      （故 opening_shift 用 S4_STRONG_FAV_PCT 二次判定，并在 action 字段给出可执行动作）
     """
     line = None
     try:
@@ -148,10 +149,18 @@ def _s4_block(txt_path):
     if not line:
         return ['  🔴S4初盘位移: 无数据(原因: 输入未提供真初盘·非 v259_ingest 产出)',
                 '    → S4 为置信度调节器·本场不参与']
+    # 🔴 阈值从 opening_shift 取，禁止在此另写一份（评审 I2）
+    try:
+        import opening_shift as _S4
+        _min_pp = _S4.S4_SHIFT_MIN_PP
+        _hot = _S4.S4_STRONG_FAV_PCT
+    except Exception:
+        _min_pp, _hot = 5.0, 70.0
     return ['  ' + line,
             '    → S4 只加标签·不改方向·不覆盖 L2 硬核（AGENTS §5.5）',
-            '    → 回测 n=441: |位移|≥5pp & 热门未变 = 73.6% vs 稳定 55.3%'
-            '(Bootstrap CI [+0.068,+0.291])·仅 60-70% 档打平']
+            '    → 回测 n=441: |位移|≥%gpp & 热门未变 = 73.6%% vs 稳定 55.3%%'
+            '(Bootstrap CI [+0.068,+0.291])·仅 %g-%g%% 档打平'
+            % (_min_pp, _hot - 10, _hot)]
 
 
 def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):

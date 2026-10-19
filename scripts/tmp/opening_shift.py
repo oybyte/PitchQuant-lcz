@@ -32,6 +32,7 @@
   r = compute_shift((1.48, 3.97, 5.40), (1.40, 4.20, 6.00))
   print(signal_line(r))
 """
+import math
 import sys
 
 try:
@@ -44,7 +45,9 @@ S4_SHIFT_MIN_PP = 5.0        # |conc_pp| ≥ 此值 → strong
 S4_MID_PP = 3.0              # 3 ≤ |conc_pp| < 5 → mid
 S4_STRONG_FAV_PCT = 70.0     # 即盘热门 ≥ 此值 → 强热门档，不追加
 
-TIERS = ('flip', 'strong', 'mid', 'flat', 'missing')
+# missing 是「状态」不是「档位」，不得混进 TIERS（评审 M5）
+TIERS = ('flip', 'strong', 'mid', 'flat')
+MISSING_TIER = 'missing'
 
 _MISSING_KEYS = ('state', 'reason', 'fav_open', 'fav_live', 'fav_kept',
                  'conc_pp', 'fav_live_pct', 'tier')
@@ -55,15 +58,23 @@ def _missing(reason):
     return {'state': 'missing', 'reason': reason, 'fav_open': None,
             'fav_live': None, 'fav_kept': None, 'conc_pp': None,
             'fav_live_pct': None, 'fav_open_pct': None,
-            'fav_open_dir_pct': None, 'tier': 'missing'}
+            'fav_open_dir_pct': None, 'tier': MISSING_TIER,
+            'action': None}
 
 
 def _f(x):
+    """→ float 或 None。
+
+    🔴 必须同时过滤 NaN 与 ±inf（2026-10-19 评审 C2）：
+       原实现只挡 NaN，inf 会一路走到 _devig 的 1.0/inf 求和为 0 → 除零，
+       而 v259_ingest.main 逐场 try/except 会把该场计入「无法转换（必须修数据源）」，
+       把上游脏值误报成数据源损坏。inf 也可能产出 conc=-66.7pp 的假信号。
+    """
     try:
         v = float(x)
     except (TypeError, ValueError):
         return None
-    if v != v:          # NaN
+    if not math.isfinite(v):
         return None
     return v
 
@@ -87,6 +98,8 @@ def _check_triple(o, tag):
         return None, '%s含非数值' % tag
     if any(v <= 1.0 for v in vals):
         return None, '%s赔率非法(≤1.0·疑似误传亚盘盘口)' % tag
+    if not all(math.isfinite(v) for v in vals):
+        return None, '%s含非有限值(inf/nan)' % tag
     return vals, None
 
 
@@ -143,16 +156,31 @@ def compute_shift(init, live):
     else:
         tier = 'flat'
 
+    # action：可执行动作（让 70% 强热门门限真正生效·评审 M3/M4）
+    #   flip                       → '降1档+并列'
+    #   strong 且 fav_live_pct<70  → '升1档'
+    #   strong 且 fav_live_pct≥70  → '不追加(强热门档已准)'
+    #   mid / flat                 → None（仅记录）
+    if tier == 'flip':
+        action = '降1档+并列'
+    elif tier == 'strong' and pct < S4_STRONG_FAV_PCT:
+        action = '升1档'
+    elif tier == 'strong':
+        action = '不追加(强热门档已准)'
+    else:
+        action = None
+
     return {'state': 'ok', 'reason': None, 'fav_open': fav_open,
             'fav_live': fav_live, 'fav_kept': kept, 'conc_pp': conc,
             'fav_live_pct': pct, 'fav_open_pct': open_pct,
-            'fav_open_dir_pct': open_dir_live_pct, 'tier': tier}
+            'fav_open_dir_pct': open_dir_live_pct, 'tier': tier,
+            'action': action}
 
 
 _LAB = ('主胜', '平局', '客胜')
 
 _TIER_CN = {'flip': '热门被推翻', 'strong': '强位移',
-            'mid': '中等位移', 'flat': '平稳'}
+            'mid': '中等位移', 'flat': '平稳', MISSING_TIER: '无数据'}
 
 
 def signal_line(result):
@@ -173,8 +201,10 @@ def signal_line(result):
         return ('🔴S4初盘位移: %s %+.1fpp · %s · 强度档=%s'
                 % (fav, conc, kept, result['tier']))
     kept = '热门未变' if result['fav_kept'] else '热门被推翻'
-    return ('🔴S4初盘位移: %s %+.1fpp（初盘 %.1f%% → 即盘 %.1f%%·同向去水）· %s · 强度档=%s'
-            % (fav, conc, open_pct, live_pct, kept, result['tier']))
+    act = result.get('action')
+    act_txt = ('· 动作=' + act) if act else ''
+    return ('🔴S4初盘位移: %s %+.1fpp（初盘 %.1f%% → 即盘 %.1f%%·同向去水）· %s · 强度档=%s%s'
+            % (fav, conc, open_pct, live_pct, kept, result['tier'], act_txt))
 
 
 def is_strong(result):

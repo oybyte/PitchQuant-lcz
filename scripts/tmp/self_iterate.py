@@ -193,6 +193,10 @@ RULE_TEMPLATES = {
 }
 
 
+# 🔴 只有这两种状态允许被「复发计数」推进；其余（已证伪/已固化/待回测验证…）一律只读。
+_LEARNABLE_STATES = ('观察', '提示')
+
+
 def _bump(rows):
     """按类型累积+复发检测→自动升级 learned_rules.json"""
     from collections import Counter, defaultdict
@@ -204,6 +208,13 @@ def _bump(rows):
         e = rules.get(t, {'count': 0, 'status': '观察', 'evidence': []})
         e['count'] = n
         e['last_seen'] = max((r[0] for r in rows if len(r) > 11 and r[11] == t), default='')
+        # 🔴 2026-10-19 评审 C1 不变式：非「学习态」的条目不得被复发计数改写。
+        #   反证登记（status='已证伪(大样本)'）与人工固化条目若被 _bump 覆写，
+        #   会以「复发≥2 自动升级」之名变成 status='提示' 并覆盖 rule
+        #   → calc_all 的提示白名单 ('提示','待回测验证','已固化') 会把它当正向规律对外发布。
+        if e.get('status') not in _LEARNABLE_STATES:
+            rules[t] = e
+            continue
         if n >= 2 and e['status'] == '观察':
             e['status'] = '提示'
             e['rule'] = RULE_TEMPLATES.get(t, '%s: 同类偏差复发 %d 次·执行时须显式核对该层' % (t, n))

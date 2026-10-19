@@ -142,3 +142,37 @@ def test_signal_line_flip_uses_open_favorite_direction():
     assert abs(r['fav_open_dir_pct'] - 31.5346) < 0.01
     line = OS.signal_line(r)
     assert '热门被推翻' in line
+
+
+
+def test_action_reports_strong_hot_band_as_no_action():
+    """M3/M4: 70% 强热门门限必须真正产出动作，而不是只活在注释里。
+
+    spec: fav_kept 且 |conc|>=5 且 即盘热门 <70% → +1 档；
+          即盘热门 >=70% → 不追加（该档稳定组已 85.7%，增量仅 +4.3pp）。
+    """
+    # 强位移 + 即盘热门 61.5%(<70) → 升1档
+    r1 = OS.compute_shift((1.50, 4.00, 6.00), (1.38, 4.00, 6.00))
+    assert r1['tier'] == 'strong'
+    assert r1['fav_live_pct'] < 70
+    assert r1['action'] == '升1档'
+
+    # 强位移 + 即盘热门 >70% → 不追加
+    r2 = OS.compute_shift((1.30, 5.50, 9.00), (1.20, 6.00, 10.00))
+    assert r2['tier'] == 'strong'
+    assert r2['fav_live_pct'] >= 70
+    assert r2['action'] == '不追加(强热门档已准)'
+
+    # 翻转 → 降档并列
+    r3 = OS.compute_shift((2.10, 3.40, 3.30), (2.90, 3.40, 2.20))
+    assert r3['action'] == '降1档+并列'
+
+    # 平稳 → 无动作
+    r4 = OS.compute_shift((1.50, 4.00, 6.00), (1.50, 4.00, 6.00))
+    assert r4['action'] is None
+
+
+def test_tiers_excludes_missing_state():
+    """M5: missing 是状态不是档位，不得混进 TIERS。"""
+    assert 'missing' not in OS.TIERS
+    assert OS.MISSING_TIER == 'missing'

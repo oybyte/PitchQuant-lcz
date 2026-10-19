@@ -326,3 +326,36 @@ def test_ingest_writes_s4_shift_line(tmpdir_repo):
     head = open(os.path.join(out, txts[0]), encoding='utf-8').read()
     assert '🔴S4初盘位移' in head
     assert '强度档=flat' in head
+
+
+
+def test_missing_init_fields_yields_three_state_not_crash(tmpdir_repo):
+    """I4: 快照缺 init_* 时必须三态「无数据」，不得抛 TypeError。
+
+    回归（2026-10-19 评审）：v259_ingest 用 '... (初盘 %g / %g / %g)' 格式化 base_init，
+    None 时先抛 TypeError，S4 那行根本执行不到 → 整场被 main() 计为「无法转换」，
+    把「上游缺字段」误报成「数据源损坏」。
+    """
+    import subprocess
+    src = os.path.join(tmpdir_repo, 'src')
+    # 澳门行只有 live_*，没有 init_*
+    euros = [
+        {'company': '澳*', 'company_en': 'Macauslot', 'company_id': '1',
+         'live_home': '2.55', 'live_draw': '3.73', 'live_away': '2.20'},
+        {'company': 'Pinnacle', 'company_en': 'Pinnacle', 'company_id': '2',
+         'init_home': '3.00', 'init_draw': '3.60', 'init_away': '2.40',
+         'live_home': '3.00', 'live_draw': '3.60', 'live_away': '2.40'},
+    ]
+    _snapshot(os.path.join(src, 'm1'), euros=euros,
+              euro_timeline=_tl([('10-17 17:01', '2.55', '3.73', '2.2')]))
+    out = os.path.join(tmpdir_repo, 'out')
+    r = subprocess.run([sys.executable, os.path.join(TMP, 'v259_ingest.py'),
+                        '--src', src, '--out', out],
+                       capture_output=True, text=True, encoding='utf-8',
+                       errors='replace', cwd=ROOT, timeout=180)
+    assert r.returncode == 0, r.stdout[-600:] + r.stderr[-600:]
+    txts = [f for f in os.listdir(out) if f.endswith('.txt')]
+    assert txts, 'no txt produced'
+    head = open(os.path.join(out, txts[0]), encoding='utf-8').read()
+    assert '🔴S4初盘位移' in head
+    assert '无数据' in head

@@ -64,7 +64,7 @@
     ],
     "_auto": "复发≥2自动升级(防同一失误重复)"
   },
-  "d1_heuristic_only": {
+  "s4_d1_negative_evidence": {
     "count": 1,
     "status": "已证伪(大样本)",
     "evidence": [

@@ -343,9 +343,12 @@ def build(match_dir, baseline='macao', emit_series=True):
         a_init[0], mac_as.get('init_line'), a_init[2], a_live[0], a_line_txt, a_live[2]))
     L.append('大小球(澳门 大球水/盘口/小球水)：初 %s / %s / %s → 即 %s / %s / %s' % (
         o_init[0], mac_ou.get('init_line'), o_init[2], o_live[0], o_line_txt, o_live[2]))
-    L.append('🔴机构通道统一基线 = %s胜平负即盘：%g / %g / %g (初盘 %g / %g / %g)' % (
-        base_tag, base_live[0], base_live[1], base_live[2],
-        base_init[0], base_init[1], base_init[2]))
+    # 🔴2026-10-19(评审 I4): 原用 %g 直接格式化 base_init，缺 init_* 时抛
+    #   TypeError: must be real number, not NoneType → 整场被计为「无法转换(数据源损坏)」。
+    #   改为 _num() 兜底，缺值显示「—」，由 S4 行给出三态原因。
+    L.append('🔴机构通道统一基线 = %s胜平负即盘：%s / %s / %s (初盘 %s / %s / %s)' % (
+        base_tag, _num(base_live[0]), _num(base_live[1]), _num(base_live[2]),
+        _num(base_init[0]), _num(base_init[1]), _num(base_init[2])))
     # 🔴 S4 初盘位移（2026-10-19）：base_init/base_live 已是本函数的真初盘与即盘，
     # 直接复用，禁止重读快照。只产出标签行，判定权仍在模型。
     L.append(S4.signal_line(S4.compute_shift(base_init, base_live)))
@@ -445,6 +448,11 @@ def build(match_dir, baseline='macao', emit_series=True):
         'consensus': cons,
     }
     return {'main': '\n'.join(L) + '\n', 'meta': meta, 'match_dir': match_dir}
+
+
+def _num(x, dash='—'):
+    """格式化数值；None → '—'（缺失不得抛异常·评审 I4）"""
+    return dash if x is None else '%g' % x
 
 
 def _safe_base(name):
