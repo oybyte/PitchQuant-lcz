@@ -137,3 +137,60 @@ def test_margin_pool_deep_handicap_unchanged():
     pool = [l.strip() for l in r.stdout.splitlines() if '[netmargin]' in l]
     assert pool, "未产出 [netmargin] 行"
     assert '亚盘-2' in pool[0] or '-2.0' in pool[0], "深盘未被采纳: " + pool[0]
+
+
+
+# ══════════ S4 初盘位移展示（2026-10-19）══════════
+# 注：本仓 pytest 的默认 tmp_path 无写权限（WinError 5），统一落到 data/tmp 下。
+
+def _calc_all_mod():
+    if TMP not in sys.path:
+        sys.path.insert(0, TMP)
+    import calc_all as CA
+    return CA
+
+
+@pytest.fixture
+def s4_tmp():
+    import shutil
+    import tempfile
+    base = os.path.join(ROOT, 'data', 'tmp', '_test_s4')
+    os.makedirs(base, exist_ok=True)
+    d = tempfile.mkdtemp(dir=base)
+    try:
+        yield d
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _write(d, name, text):
+    p = os.path.join(d, name)
+    open(p, 'w', encoding='utf-8').write(text)
+    return p
+
+
+def test_s4_block_reads_shift_line(s4_tmp):
+    """calc_all 必须回显并标注 S4 位移行，且明确不改方向。"""
+    CA = _calc_all_mod()
+    p = _write(s4_tmp, 'm.txt',
+               '🔴S4初盘位移: 客胜 -7.9pp（初盘 48.5% → 即盘 56.4%）· 热门未变 · 强度档=strong\n')
+    joined = '\n'.join(CA._s4_block(p))
+    assert 'S4' in joined
+    assert 'strong' in joined
+    assert ('只加标签' in joined) or ('不改方向' in joined)
+
+
+def test_s4_block_three_state_when_absent(s4_tmp):
+    """没有 S4 行时必须三态标注，不得静默当成『平稳』。"""
+    CA = _calc_all_mod()
+    p = _write(s4_tmp, 'm.txt', '赛事：x\n')
+    joined = '\n'.join(CA._s4_block(p))
+    assert 'S4' in joined
+    assert '无数据' in joined
+
+
+def test_checklist_registers_c35():
+    CA = _calc_all_mod()
+    ids = [c[0] for c in CA.CHECKLIST]
+    assert 'C35' in ids
+

@@ -42,6 +42,8 @@ CHECKLIST = [
     ('C28', '比分命中口径标注(主锚/次锚·第3/4候选不算)', None, '口径铁律'),
     ('C29', '自检表22项逐项证据', None, 'checklist'),
     ('C30', '落盘: case_write add/review + raw七节 + check_luopan', None, 'case_write'),
+    # 🔴2026-10-19(S4): 初盘位移强度——只加标签·不改方向（AGENTS §5.5）
+    ('C35', 'S4 初盘位移强度(只加标签·不改方向)', None, 'opening_shift'),
 ]
 
 # 统一联赛归一化（审计 P0 修复·三套命名空间统一）——
@@ -122,6 +124,34 @@ def _norm(s):
                'club ', 'calcio ', '.', '-', ' ', "'"):
         s = s.replace(_w, '')
     return s
+
+
+def _s4_block(txt_path):
+    """S4 初盘位移展示块（2026-10-19）。
+
+    🔴 只回显 v259_ingest 写入的 🔴S4初盘位移 行，**不重算、不改方向**。
+       重算会引入第二个口径源——真初盘只在 v259_ingest.build() 里拿得到
+       （base_init 来自快照 init_*），calc_all 吃的是 txt，不保证有 init。
+
+    依据（441 场真初盘·docs/初盘判定_2026-10-19.md）:
+      |位移|≥5pp 且热门未变 → 73.6%(n=87) vs 稳定 ±3pp → 55.3%(n=246)
+      Bootstrap 95%CI [+0.068, +0.291]；60-70% 强热门档打平（故需 is_strong 二次判定）
+    """
+    line = None
+    try:
+        for _ln in open(txt_path, encoding='utf-8').read().split('\n'):
+            if _ln.strip().startswith('🔴S4初盘位移'):
+                line = _ln.strip()
+                break
+    except Exception:
+        line = None
+    if not line:
+        return ['  🔴S4初盘位移: 无数据(原因: 输入未提供真初盘·非 v259_ingest 产出)',
+                '    → S4 为置信度调节器·本场不参与']
+    return ['  ' + line,
+            '    → S4 只加标签·不改方向·不覆盖 L2 硬核（AGENTS §5.5）',
+            '    → 回测 n=441: |位移|≥5pp & 热门未变 = 73.6% vs 稳定 55.3%'
+            '(Bootstrap CI [+0.068,+0.291])·仅 60-70% 档打平']
 
 
 def _layer_state_lines(txt_path, league_cn, eu=None, o25=None, handi=None):
@@ -975,6 +1005,10 @@ def main():
                     break
     except Exception:
         pass
+
+    # 🔴2026-10-19(S4): 初盘位移块——只回显、不重算、不改方向
+    for _ln in _s4_block(txt_path):
+        print(_ln)
 
     print('=' * 70)
     # ① 跑 calc_match 全管道(含修正的run_extensions·净胜档/总进球档已接入)
