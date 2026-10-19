@@ -14,7 +14,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Skills](https://img.shields.io/badge/Skills-36-green)
-![Scripts](https://img.shields.io/badge/Scripts-172-yellow)
+![Scripts](https://img.shields.io/badge/Scripts-199-yellow)
 ![Auto--Checks](https://img.shields.io/badge/Auto--Checks-252-orange)
 ![Backtest](https://img.shields.io/badge/Backtest-227k%20matches-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
@@ -279,10 +279,10 @@ Research/engineering use only. Long-term EV is negative. Comply with local laws 
 | **Input required** | Manual plain-text odds file (Chinese lottery format) — no auto-scraping |
 | **Backtest size** | 227k league matches + 1,174 European fixtures |
 | **No guarantee** | Historical backtest results are methodology validation only, not future performance promises |
-| **Self-check** | `check_sync.py` on the public release: **252 checks → 180 pass / 0 fail / 72 skipped** (read live from the script's own summary line; do not hand-edit this number). Skipped means *not present in the public edition*, never *failed*. |
+| **Self-check** | `check_sync.py` on the public release: **252 checks → 181 pass / 0 fail / 71 skipped** (read live from the script's own summary line; do not hand-edit this number). Skipped means *not present in the public edition*, never *failed*. |
 | **Check-count scope** | The 252 figure is `check_sync.py` **only**. `output_checker.py` adds 35 required blocks — they are **separate gates**, not to be summed into a single headline number |
 | **Offline-first** | Analysis/prediction runs **fully offline** (`net_policy.for_analysis()`, no override); review is offline by default and only goes online on explicit user request. No API key is ever bundled |
-| **Calibration** | `data/tmp/prob_calibration.json` — rebuilt from a 441-match blind test. ⚠️ n=441 (MC RMSE ≈5.3 pp): establishes the *direction* of favourite undervaluation, not a trustworthy magnitude |
+| **Calibration** | `data/tmp/prob_calibration.json` — rebuilt from a 441-match blind test. ⚠️ n=441 (MC RMSE ≈5.3 pp): establishes the *direction* of favourite undervaluation, not a trustworthy magnitude. 🔴 **Significance gate (2026-10-19):** bands with binomial **p≥0.05 are forced to 0** — only `0.60-0.70` (p=0.036) survives. Unscreened bands had flipped 5 matches the wrong way (model 59.5% vs market 62.0%); after the gate: **62.0%**, 0 flips |
 
 ---
 
@@ -532,10 +532,10 @@ PitchQuant/
 | **输入方式** | 手动准备纯文本赔率文件（竞彩格式），不自动抓取 |
 | **回测规模** | 联赛 22.7 万场 + 欧战 1,174 场 |
 | **不保证收益** | 历史回测数字仅验证方法论，不代表未来表现 |
-| **自检** | `check_sync.py` 公开版可直接运行：**252 条 → 通过 180 / 失败 0 / 跳过 72**（数字取自脚本自身的总结果行，禁手改）。跳过=公开版未提供，**不等于失败** |
+| **自检** | `check_sync.py` 公开版可直接运行：**252 条 → 通过 181 / 失败 0 / 跳过 71**（数字取自脚本自身的总结果行，禁手改）。跳过=公开版未提供，**不等于失败** |
 | **校验数口径** | 252 仅指 `check_sync.py`；`output_checker.py` 另有 35 个必填块，属**独立门禁**，二者不加总 |
 | **离线优先** | 分析/预测**全程离线**（`net_policy.for_analysis()`，不可绕过）；复盘默认离线，仅用户明确要求时才联网。仓库不含任何 api key |
-| **校准表** | `data/tmp/prob_calibration.json` —— 由 441 场盲测重建。⚠️ n=441（蒙特卡洛 RMSE ≈5.3pp）：只确立「热门被低估」的*方向*，幅度尚不可信 |
+| **校准表** | `data/tmp/prob_calibration.json` —— 由 441 场盲测重建。⚠️ n=441（蒙特卡洛 RMSE ≈5.3pp）：只确立「热门被低估」的*方向*，幅度尚不可信。🔴 **显著性门（2026-10-19）**：二项检验 **p≥0.05 的档强制置 0**，8 档只剩 `0.60-0.70`（p=0.036）。未设门时有 5 场被反向改判（模型 59.5% vs 市场 62.0%）；设门后 **62.0%**，改判 0 场 |
 
 ---
 

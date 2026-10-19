@@ -5,6 +5,54 @@ All notable changes to this project are documented here.
 
 ---
 
+## [1.2.0] — 2026-10-19 · 初盘位移模块 S4 + 校准显著性门 + 两轮研究
+
+> 触发：连续两轮"能不能用数据找到超越市场的信号"研究，以及一次系统性 2.5pp 方向缺口排查。
+> 改动落点：**新增 1 个单一真源模块 + 1 道校准统计门 + 2 处展示层接入**。
+> 全程离线（研究阶段的联网实验为一次性、单独标注，未改动 `net_policy.for_analysis()`）。
+
+### ✨ Added · 新增
+
+**S4 初盘位移强度模块**（`scripts/tmp/opening_shift.py`）
+- 单一真源：`S4_SHIFT_MIN_PP=5.0` / `S4_MID_PP=3.0` / `S4_STRONG_FAV_PCT=70.0`，禁他处硬编码
+- 口径：`conc_pp = (1/live[fav] − 1/init[fav]) × 100`，`fav` 为初盘赔率最低方向
+- 分级 `flip / strong / mid / flat`，并输出 `action`（降1档+并列 / 升1档 / 不追加）
+- `v259_ingest` 写入 txt 头、`calc_all` 展示（C35 必核项）——**只加标签，不改方向**
+- 依据：441 场真初盘，`|位移|≥5pp 且热门未变` → 73.6% vs 稳定 55.3%
+
+**可复用批处理脚本**
+- `scripts/tmp/run_batch.py` / `digest_batch.py` —— 替代硬编码 `batch_14` 的一次性脚本
+
+### 🔴 Fixed · 修复
+
+**概率校准表缺显著性检验（2.5pp 方向缺口根因）**
+- 现象：79 场复盘模型 59.5% < 直接押市场热门 62.0%
+- 根因：`prob_calibration` 的 `0.30-0.40` 档照抄 −5.97pp，但该档 **p=0.114 不显著**、
+  四批次 **+15.0 / +1.8 / −16.5 / −4.8pp 正负颠倒**；把「主胜领先但主客接近」的场次压成客胜
+- 修复：`build_prob_calibration.py` 增加双侧二项检验，**p≥0.05 的档 bias 置 0**；
+  每档写入 `p_value` / `raw_bias_pp`；8 档只剩 `0.60-0.70`（p=0.036）
+- 效果：**59.5% → 62.0%**，改判 5 场 → **0 场**
+- 守线：`tests/test_prob_calibration_validity.py`（6 项，含端到端「不得把市场主胜翻成客胜」）
+
+**`calc_all` xG 分支 `UnboundLocalError`**
+- `_norm` 原为 ELO 分支闭包，xG 分支在非西甲联赛才走到 → 提升为模块级
+
+### 📄 Docs · 文档
+
+- `docs/相似性检索_2026-10-18.md` —— 404 场：KNN 判方向全面输给市场（融合最优 α=1.0）
+- `docs/初盘判定_2026-10-19.md` —— 441 场真初盘：初盘≠终盘信息量，位移才有
+- `docs/方案_初盘位移接入_2026-10-19.md` —— S4 接入方案与优先级
+- `reports/2026-10-19_2.5pp缺口根因.md` —— systematic-debugging 四阶段留痕
+- `reports/2026-10-19_output全量79场_回测.md` —— 方向 59.5% / 比分 24.1% / 大小球 63.5%
+- `reports/2026-10-19_联网基本面实验.md` —— 联网结论：公开 Elo 不含增量
+
+### ⚠️ Changed · 变更
+
+- `prob_calibration.json` schema 新增 `p_value` / `raw_bias_pp` 两字段（向后兼容）
+- `README` 徽章脚本数 172 → **199**（与实际 `git ls-files scripts/*.py` 对齐）
+
+---
+
 ## [1.0.0] — 2026-09-19 · 首个公开发布 / First Public Release
 
 ### ✨ Added · 新增
