@@ -1,57 +1,75 @@
 {
  "0.00-0.15": {
-  "bias_pp": -2.34,
+  "bias_pp": 0.0,
   "n": 25,
   "implied_mid": 0.075,
-  "actual": 0.04
+  "actual": 0.04,
+  "p_value": 0.2532,
+  "raw_bias_pp": -2.34
  },
  "0.15-0.30": {
-  "bias_pp": 3.47,
+  "bias_pp": 0.0,
   "n": 77,
   "implied_mid": 0.225,
-  "actual": 0.26
+  "actual": 0.26,
+  "p_value": 0.2327,
+  "raw_bias_pp": 3.47
  },
  "0.30-0.40": {
-  "bias_pp": -5.97,
+  "bias_pp": 0.0,
   "n": 93,
   "implied_mid": 0.35,
-  "actual": 0.29
+  "actual": 0.29,
+  "p_value": 0.1138,
+  "raw_bias_pp": -5.97
  },
  "0.40-0.50": {
-  "bias_pp": 7.81,
+  "bias_pp": 0.0,
   "n": 89,
   "implied_mid": 0.45,
-  "actual": 0.528
+  "actual": 0.528,
+  "p_value": 0.0693,
+  "raw_bias_pp": 7.81
  },
  "0.50-0.60": {
-  "bias_pp": 9.41,
+  "bias_pp": 0.0,
   "n": 59,
   "implied_mid": 0.55,
-  "actual": 0.644
+  "actual": 0.644,
+  "p_value": 0.0732,
+  "raw_bias_pp": 9.41
  },
  "0.60-0.70": {
   "bias_pp": 11.92,
   "n": 52,
   "implied_mid": 0.65,
-  "actual": 0.769
+  "actual": 0.769,
+  "p_value": 0.0357,
+  "raw_bias_pp": 11.92
  },
  "0.70-0.80": {
-  "bias_pp": 3.79,
+  "bias_pp": 0.0,
   "n": 33,
   "implied_mid": 0.75,
-  "actual": 0.788
+  "actual": 0.788,
+  "p_value": 0.3077,
+  "raw_bias_pp": 3.79
  },
  "0.80-1.00": {
-  "bias_pp": 3.15,
+  "bias_pp": 0.0,
   "n": 13,
   "implied_mid": 0.9,
-  "actual": 0.923
+  "actual": 0.923,
+  "p_value": 0.3908,
+  "raw_bias_pp": 3.15
  },
  "_meta": {
   "source": "441场盲测实盘(batch_2_5_8/74/140/203)",
   "method": "主胜隐含档 -> 实际主胜率, bias_pp = (actual - implied_mid)*100",
+  "significance": "双侧二项检验, p>=0.05 的档 bias_pp 置0(不施加)",
   "n_total": 441,
   "min_n": 30,
+  "alpha": 0.05,
   "generated_by": "build_prob_calibration.py"
  }
 }

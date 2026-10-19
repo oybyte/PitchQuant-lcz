@@ -12,6 +12,14 @@
   · 大样本档( n>=30 ) 用实测 bias
   · 小样本档( n<30 ) 向相邻大样本档收缩(避免噪声)
   · 最高档收敛到 85-1.00（更细分段样本不足）
+
+🔴 2026-10-19 修复（2.5pp 缺口根因）:
+  原表对每一档都照抄实测 bias，**未做统计显著性检验** →
+  0.30-0.40 档拿到 -5.97pp（n=93, p=0.114 不显著，四批次 +15.0/+1.8/-16.5/-4.8 正负颠倒），
+  该修正把「主胜领先但主客接近」的场次直接压成客胜，
+  实测 79 场里 5 次改判全错（模型 59.5% < 直接押热门 62.0%）。
+  现规则：**二项检验 p>=0.05 的档一律置 0**，只保留统计显著的偏差；
+  每档写入 p_value 供下游审计。
 """
 import json, os, sys, math
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
@@ -50,7 +58,8 @@ for lo, hi in BANDS:
         raw.append({"lo": lo, "hi": hi, "n": 0, "mid": mid, "actual": mid, "bias": 0.0})
         continue
     act = sum(r[1] for r in g) / n
-    raw.append({"lo": lo, "hi": hi, "n": n, "mid": mid, "actual": act, "bias": (act - mid) * 100})
+    raw.append({"lo": lo, "hi": hi, "n": n, "mid": mid, "actual": act, "bias": (act - mid) * 100,
+                "k": sum(r[1] for r in g)})
 
 # 平滑：n<30 的档向 n>=30 的相邻档收缩
 MIN_N = 30
@@ -65,20 +74,45 @@ for i, r in enumerate(raw):
         r["bias"] = r["bias"] * w + target * (1 - w)
     r["shrunk"] = True
 
+# 🔴 2026-10-19: 统计显著性门（二项检验·H0: 实际命中率 = 隐含中点）
+#   p >= ALPHA 的档视为噪声 → bias 置 0（不是「保守地小改」，是「不施加」）
+ALPHA = 0.05
+
+
+def _pvalue(k, n, p0):
+    """双侧二项检验（正态近似·n>=13 时足够准）"""
+    if n == 0:
+        return 1.0
+    a = k / float(n)
+    se = math.sqrt(p0 * (1 - p0) / n)
+    if se <= 0:
+        return 1.0
+    z = (a - p0) / se
+    return 0.5 * math.erfc(abs(z) / math.sqrt(2))
+
+
 out = {}
 print()
-print("%-14s %5s %8s %8s %9s %s" % ("区间", "n", "隐含中点", "实际", "bias_pp", "处理"))
+print("%-14s %5s %8s %8s %9s %8s %s" % ("区间", "n", "隐含中点", "实际", "bias_pp", "p值", "处理"))
 for r in raw:
     key = "%.2f-%.2f" % (r["lo"], r["hi"])
-    out[key] = {"bias_pp": round(r["bias"], 2), "n": r["n"],
-                "implied_mid": round(r["mid"], 3), "actual": round(r["actual"], 3)}
-    print("%-14s %5d %7.1f%% %7.1f%% %+8.2f %s" % (
-        key, r["n"], r["mid"] * 100, r["actual"] * 100, r["bias"],
-        "收缩(样本<%d)" % MIN_N if r.get("shrunk") else "实测"))
+    pv = _pvalue(r.get("k", 0), r["n"], r["mid"]) if r["n"] else 1.0
+    bias = r["bias"]
+    if pv >= ALPHA:
+        bias = 0.0                     # 不显著 → 不施加
+        tag = "🔴噪声置0(p=%.3f)" % pv
+    else:
+        tag = "✅显著" + ("(收缩)" if r.get("shrunk") else "")
+    out[key] = {"bias_pp": round(bias, 2), "n": r["n"],
+                "implied_mid": round(r["mid"], 3), "actual": round(r["actual"], 3),
+                "p_value": round(pv, 4), "raw_bias_pp": round(r["bias"], 2)}
+    print("%-14s %5d %7.1f%% %7.1f%% %+8.2f %8.4f %s" % (
+        key, r["n"], r["mid"] * 100, r["actual"] * 100, r["bias"], pv, tag))
 
 meta = {"_meta": {"source": "441场盲测实盘(batch_2_5_8/74/140/203)",
                   "method": "主胜隐含档 -> 实际主胜率, bias_pp = (actual - implied_mid)*100",
-                  "n_total": len(ROWS), "min_n": MIN_N,
+                  "significance": "双侧二项检验, p>=%g 的档 bias_pp 置0(不施加)" % ALPHA,
+                  "n_total": len(ROWS), "min_n": MIN_N, "alpha": ALPHA,
                   "generated_by": "build_prob_calibration.py"}}
 out.update(meta)
 
