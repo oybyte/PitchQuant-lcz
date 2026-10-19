@@ -1,0 +1,131 @@
+{
+ "A": {
+  "market_top2": 0.8032786885245902,
+  "knn_top2": 0.7786885245901639,
+  "union_with_3rd": 0.8729508196721312,
+  "need_3rd": 48,
+  "n": 244
+ },
+ "B": [
+  {
+   "cond": "主赔走低 dr6_h>+1pp",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "主赔走高 dr6_h<-1pp",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "客赔走低 dr6_a<-1pp",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "客赔走高 dr6_a>+1pp",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "盘口加深 ah_line_d<0",
+   "n": 6,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "盘口变浅 ah_line_d>0",
+   "n": 5,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "主赔降但盘口未深(剪刀差)",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "主赔升但盘口加深(逆)",
+   "n": 0,
+   "side": null,
+   "actual": null,
+   "market": null,
+   "edge": null,
+   "p": null
+  },
+  {
+   "cond": "欧亚背离 |x|>8pp",
+   "n": 128,
+   "side": "主",
+   "actual": 44.53125,
+   "market": 43.024083612020135,
+   "edge": 1.5071663879798636,
+   "p": 0.36527227685955843
+  },
+  {
+   "cond": "低水 ah_p_last<45%",
+   "n": 37,
+   "side": "主",
+   "actual": 45.94594594594595,
+   "market": 39.916306858843654,
+   "edge": 6.029639087102296,
+   "p": 0.2269510156332419
+  }
+ ],
+ "C": [
+  {
+   "lo": 0,
+   "hi": 0.45,
+   "n": 98,
+   "market": 0.4091020488555264,
+   "actual": 0.3979591836734694
+  },
+  {
+   "lo": 0.45,
+   "hi": 0.55,
+   "n": 42,
+   "market": 0.4814082341481984,
+   "actual": 0.6428571428571429
+  },
+  {
+   "lo": 0.55,
+   "hi": 0.65,
+   "n": 51,
+   "market": 0.6030752290013978,
+   "actual": 0.6862745098039216
+  },
+  {
+   "lo": 0.65,
+   "hi": 1.01,
+   "n": 53,
+   "market": 0.7494579955987535,
+   "actual": 0.8113207547169812
+  }
+ ]
+}
