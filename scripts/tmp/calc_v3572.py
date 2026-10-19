@@ -618,6 +618,43 @@ def direction_full(oh, od, oa, over25=None, league_div=None, draw_group_score=0.
                 ('+prob_calibration分档校准' if _calib_note is None else '[🔴校准未生效]'),
                 draw_group_score, inj_score_h, inj_score_a)}
 
+# ── 🔴弱共识保护性铁律（2026-10-19·520 场全量验证）──
+# 规则: skew < WEAK_SKEW_PCT 的弱共识场「平局必须与市场首选并列（禁单押市场首选）」。
+# 🔴 问题: 该规则此前只在 calc_match 里 print 一行提示，**从未写入 parallel** →
+#   实测 5 个批次、72 场弱共识场**无一例外**仍是「并列:no」（禁单押铁律完全未生效）。
+#   根因: direction_full 形参不含 skew，结构上无法感知弱共识。
+# 证据(520 场·2026-10-19): 弱共识场 top1 44.5% ≈随机；any(热门+平局) 72.8%（+28.3pp）；
+#   该档真实平局率 28.3% vs 全样本 20.4% → 并列是保护性的，规则方向正确。
+def _weak_consensus_pct():
+    """弱共识门限的单一真源 = calc_match.WEAK_SKEW_PCT（AGENTS §5.11·禁硬编码）。"""
+    try:
+        from calc_match import WEAK_SKEW_PCT
+        return float(WEAK_SKEW_PCT)
+    except Exception:
+        return 150.0   # 兜底与真源同值——真源缺失时不得静默放宽保护
+
+WEAK_CONSENSUS_PCT = _weak_consensus_pct()
+
+
+def weak_consensus_parallel(skew, parallel):
+    """弱共识场强制并列（保护性铁律·禁单押市场首选）。
+
+    输入: skew=未校准去水 skew(%)；parallel=direction_full 原并列建议
+    返回: skew <= 门限 → 'yes'；否则保持原值（规范化为 'yes'/'no'）
+    依据: 520 场——弱共识档单押仅 44.5%(≈随机)，并列后 any 口径 72.8%
+    单一真源: WEAK_CONSENSUS_PCT ← calc_match.WEAK_SKEW_PCT
+    """
+    if skew is None:
+        return parallel
+    try:
+        s = float(skew)
+    except (TypeError, ValueError):
+        return parallel
+    if s <= WEAK_CONSENSUS_PCT + 1e-6:   # 边界归保护侧（与 calc_match 的 1e-6 容差一致）
+        return 'yes'
+    return 'yes' if parallel == 'yes' else 'no'
+
+
 if __name__ == "__main__":
     main()
 

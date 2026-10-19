@@ -11,7 +11,11 @@ import re, sys, io, os, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from table_paths import find_table  # noqa: E402
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8') if hasattr(sys.stdout, 'buffer') else sys.stdout
+# 🔴 2026-10-19 修复：原为**模块级**无条件替换 stdout → 任何 import calc_match 的调用者
+#   （尤其 pytest capture）会被替换掉 stdout，导致测试以 ERROR 收场、捕获栈损坏。
+#   现限制为「仅作为脚本直接运行时执行」——subprocess 调用路径行为完全不变。
+if __name__ == '__main__':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8') if hasattr(sys.stdout, 'buffer') else sys.stdout
 
 def parse_txt(text):
     """解析竞彩txt各盘，返回 {盘名: [(时间戳, {选项:赔率})]}

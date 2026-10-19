@@ -1067,7 +1067,8 @@ def main():
     print('【欧亚综合+诱阻识别+量级(2026-09-02·direction_full新机制)】')
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from calc_v3572 import direction_full, match_classifier, handicap_intent_analyzer, goal_bin_probs
+        from calc_v3572 import (direction_full, match_classifier, handicap_intent_analyzer,
+                                goal_bin_probs, weak_consensus_parallel)
         if eu:
             parts = eu.split(',')
             if len(parts) == 3:
@@ -1100,8 +1101,29 @@ def main():
                     draw_group_score=_draw_score,
                     inj_score_h=int(inj_h) if inj_h else 0, inj_score_a=int(inj_a) if inj_a else 0,
                     official_dc=float(off) if off else None)
-                print('  方向(欧亚综合): %s(%s) | 并列:%s | 诱盘:%s | 提示:%s | 修正53分组分%.1f' % (
-                    dr['主方向'], dr['置信度'], dr['并列建议'], dr.get('诱盘信号') or '无', dr.get('执行提示') or '无', _draw_score))
+                # 🔴弱共识保护性铁律（2026-10-19）：skew < WEAK_SKEW_PCT → 强制并列。
+                # 依据: 520场实测——弱共识场单押仅 44.5%(≈随机)，并列后 any 口径 72.8%(+28.3pp)；
+                #   该档真实平局率 28.3% vs 全样本 20.4%。
+                # 修复前该铁律只在 calc_match 里 print，从未写入 parallel → 72 场弱共识场**全部**仍单押。
+                # skew 取 calc_match 打印的【未校准】口径（与弱共识判定同源·禁手算）。
+                _skew_v = None
+                try:
+                    _msk = re.search(r'skew精确计算\(未校准\): [\d.]+/[\d.]+ = ([\d.]+)%', out)
+                    if _msk:
+                        _skew_v = float(_msk.group(1))
+                except Exception:
+                    _skew_v = None
+                _par_before = dr.get('并列建议')
+                _par_after = weak_consensus_parallel(_skew_v, _par_before)
+                _weak_note = ''
+                if _par_after != _par_before:
+                    _weak_note = ('  ← 🔴弱共识强制并列(skew=%s%%≤%g%%): 原「%s」→「%s」'
+                                  '·依据520场(单押44.5%%≈随机·并列72.8%%)'
+                                  % (_skew_v, __import__('calc_v3572').WEAK_CONSENSUS_PCT,
+                                     _par_before, _par_after))
+                dr['并列建议'] = _par_after
+                print('  方向(欧亚综合): %s(%s) | 并列:%s | 诱盘:%s | 提示:%s | 修正53分组分%.1f%s' % (
+                    dr['主方向'], dr['置信度'], dr['并列建议'], dr.get('诱盘信号') or '无', dr.get('执行提示') or '无', _draw_score, _weak_note))
                 # 🔴铁胆档（2026-10-18·用户指令）——独立于 conf 的「硬度」标签
                 if dr.get('铁胆'):
                     print('  🔴🔴铁胆档: %s' % dr.get('铁胆标签'))
