@@ -14,7 +14,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Skills](https://img.shields.io/badge/Skills-36-green)
-![Scripts](https://img.shields.io/badge/Scripts-199-yellow)
+![Scripts](https://img.shields.io/badge/Scripts-204-yellow)
 ![Auto--Checks](https://img.shields.io/badge/Auto--Checks-252-orange)
 ![Backtest](https://img.shields.io/badge/Backtest-227k%20matches-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
